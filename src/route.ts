@@ -1,8 +1,9 @@
 // Route handlers for app/api/camada/[...camada]/route.ts:
 //   GET  …/b.js  -> the first-party beacon IIFE (its auto-init derives the fp endpoint from
 //                   the script URL's final path segment and the rid from ?r=)
-//   POST …/fp    -> relay the beacon body to ingest with the trusted-proxy-resolved client
-//                   IP and tap 'sdk-next' injected — the mirror of @camada/node's /_cam/*.
+//   POST …/fp    -> queue the beacon as a sig:1 row with the trusted-proxy-resolved client IP
+//                   and tap 'sdk-next': it rides the event batch (one request per flush at the
+//                   analyst, not one per page view) — the mirror of @camada/node's /_cam/*.
 // Works on BOTH runtimes (edge and node): Web APIs only, no node: imports. Unconfigured or
 // disabled: GET 404s, POST answers 204 and drops — inert, never an error.
 import iife from '@camada/browser/iife-string';
@@ -63,14 +64,12 @@ export function camadaRoute(): {
         const deny = blocked(engine, req);
         if (deny) return deny;
         const ip = resolveClientIp(null, req.headers.get('x-forwarded-for'), trustedProxy(engine));
-        let out = body;
-        try { out = JSON.stringify({ ...JSON.parse(body), tap: TAP_NEXT }); } catch { /* relay as-is; the server validates */ }
-        void engine.fetchImpl(`${engine.env.ingestUrl}/fp`, {   // fire-and-forget
-          method: 'POST',
-          headers: { 'x-tenant': engine.env.ingestToken, 'content-type': 'application/json', 'x-client-ip': ip || '' },
-          body: out,
-          signal: AbortSignal.timeout(2000),
-        }).catch(() => {});
+        let parsed: unknown;
+        try { parsed = JSON.parse(body); } catch { return noContent(); }   // not a beacon: drop it, never ship junk
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          engine.queue.push({ ...(parsed as Record<string, unknown>), sig: 1, ip, tap: TAP_NEXT });
+          void engine.queue.flush();   // fire-and-forget, as the relay was: a serverless runtime may freeze right after the response
+        }
       }
       return noContent();
     }, noContent()),
