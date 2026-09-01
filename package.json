@@ -1,0 +1,51 @@
+{
+  "version": "0.0.1",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "check": "tsc --noEmit"
+  },
+  "name": "@camada/next",
+  "description": "camada backend SDK for Next.js: edge-safe middleware/proxy, /api/camada route handlers, <CamadaBeacon/> with the request rid",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@camada/core": "file:../camada-core",
+    "@camada/browser": "file:../camada-browser",
+    "@camada/react": "file:../camada-react"
+  },
+  "peerDependencies": {
+    "next": ">=15",
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "tsup": "^8.3.5",
+    "vitest": "^3.0.0",
+    "next": "^16.0.0",
+    "react": "^19.0.0",
+    "@types/react": "^19.0.0",
+    "@edge-runtime/vm": "^5.0.0",
+    "esbuild": "^0.24.0",
+    "@types/node": "^22.10.0"
+  }
+}
