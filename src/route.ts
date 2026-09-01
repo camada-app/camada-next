@@ -9,11 +9,21 @@ import iife from '@camada/browser/iife-string';
 import { guardedAsync, resolveClientIp, TAP_NEXT } from '@camada/core';
 import { getEngine, isDisabled, trustedProxy, type Engine } from './engine';
 
-const FP_MAX = 64 * 1024;
+const FP_MAX = 32 * 1024;   // matches the server's /fp cap: never accept what ingest will 413
 const encoder = new TextEncoder();
 
 const notFound = () => new Response(null, { status: 404 });
 const noContent = () => new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
+
+// The route handlers enforce too: a middleware matcher that excludes /api/ (a common pattern)
+// must not leave the beacon endpoints serving blocked clients.
+function blocked(engine: Engine, req: Request): Response | null {
+  const ip = resolveClientIp(null, req.headers.get('x-forwarded-for'), trustedProxy(engine));
+  const v = engine.snap.verdict({ ip, path: new URL(req.url).pathname });
+  return v.block
+    ? new Response('Forbidden', { status: 403, headers: { 'x-block-reason': String(v.reason ?? ''), 'x-block-version': v.version ?? '' } })
+    : null;
+}
 
 function lastSegment(req: Request): string {
   const parts = new URL(req.url).pathname.split('/');
@@ -34,6 +44,8 @@ export function camadaRoute(): {
       const engine = activeEngine();
       if (!engine) return notFound();
       engine.snap.ensureFresh();
+      const deny = blocked(engine, req);
+      if (deny) return deny;
       if (engine.snap.config?.beacon === false) return notFound();   // tenant disabled the beacon
       return new Response(iife, {
         status: 200,
@@ -48,6 +60,8 @@ export function camadaRoute(): {
       const engine = activeEngine();
       if (engine) {
         engine.snap.ensureFresh();
+        const deny = blocked(engine, req);
+        if (deny) return deny;
         const ip = resolveClientIp(null, req.headers.get('x-forwarded-for'), trustedProxy(engine));
         let out = body;
         try { out = JSON.stringify({ ...JSON.parse(body), tap: TAP_NEXT }); } catch { /* relay as-is; the server validates */ }

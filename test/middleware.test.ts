@@ -148,3 +148,31 @@ describe('fail-open envelope', () => {
     await ev.settled();                          // flush swallows the failure
   });
 });
+
+describe('session cookie (_sfp, same as the collector and @camada/node)', () => {
+  it('sets the cookie on a fresh visitor and marks the event as a new session', async () => {
+    const a = fakeAnalyst();
+    const handler = await primed(a);
+    const ev = fakeEvent();
+    const res = handler(req('/'), asEvent(ev))!;
+    await ev.settled();
+    const cookie = res.headers.get('set-cookie') || '';
+    expect(cookie).toContain('_sfp=');
+    expect(cookie).toContain('Secure');   // https request URL
+    const sent = a.events.flat()[0] as Record<string, unknown>;
+    expect(sent.ns).toBe(1);
+    expect(sent.sid).toBeTruthy();
+  });
+
+  it('keeps an existing sid and does not reset the cookie', async () => {
+    const a = fakeAnalyst();
+    const handler = await primed(a);
+    const ev = fakeEvent();
+    const res = handler(req('/', { cookie: '_sfp=known-sid; other=1' }), asEvent(ev))!;
+    await ev.settled();
+    expect(res.headers.get('set-cookie')).toBeNull();
+    const sent = a.events.flat()[0] as Record<string, unknown>;
+    expect(sent.sid).toBe('known-sid');
+    expect(sent.ns).toBe(0);
+  });
+});
