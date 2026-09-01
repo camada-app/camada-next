@@ -77,8 +77,11 @@ a real cold → blocked flow against the golden snapshot fixture.
 - **Serverless cold start fails open**: the first request on a cold instance sees no
   snapshot and passes; the snapshot loads via `waitUntil` and enforcement begins on the next
   request.
-- **App-context tracking** (`track()` — login failed, signup, …) is a `@camada/node` feature
-  today; the Next.js app-context surface lands later.
+- **App-context tracking works from request scope only.** `track(event, {user?})` records
+  outcomes (login failed, signup, …) from server actions, route handlers, and server
+  components, joining the middleware's wire event via `x-camada-rid` + the `_sfp` cookie and
+  HMAC-hashing the identifier in-process. Outside a request scope it is a silent no-op —
+  and it must not be called from middleware, which already ships its own event.
 
 ## Develop
 
