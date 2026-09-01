@@ -10,6 +10,7 @@ import { guardedAsync, resolveClientIp, TAP_NEXT } from '@camada/core';
 import { getEngine, isDisabled, trustedProxy, type Engine } from './engine';
 
 const FP_MAX = 64 * 1024;
+const encoder = new TextEncoder();
 
 const notFound = () => new Response(null, { status: 404 });
 const noContent = () => new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
@@ -43,7 +44,7 @@ export function camadaRoute(): {
     POST: (req) => guardedAsync(async () => {
       if (lastSegment(req) !== 'fp') return notFound();
       const body = await req.text();
-      if (new TextEncoder().encode(body).byteLength > FP_MAX) return new Response(null, { status: 413 });
+      if (encoder.encode(body).byteLength > FP_MAX) return new Response(null, { status: 413 });
       const engine = activeEngine();
       if (engine) {
         engine.snap.ensureFresh();
