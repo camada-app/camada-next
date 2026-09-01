@@ -7,9 +7,11 @@
 // This module is part of the middleware's import graph and therefore MUST stay
 // edge-runtime-safe: Web APIs and process.env reads only, no node: imports.
 import {
-  SnapshotClient, EventQueue, parseKey, logRateLimited,
+  SnapshotClient, EventQueue, parseKey, parseTrustedProxyEnv, logRateLimited,
   type TrustedProxyConfig,
 } from '@camada/core';
+
+export { parseTrustedProxyEnv };   // re-export for callers that had reached into this module
 
 export interface ResolvedEnv {
   ingestToken: string;
@@ -17,16 +19,6 @@ export interface ResolvedEnv {
   ingestUrl: string;
   snapshotUrl: string;
   trustedProxy: TrustedProxyConfig | null;   // null = defer to server-delivered config
-}
-
-/** Local override: none | vercel | hops:N | cidrs:a,b (mirror of @camada/node's parser). */
-export function parseTrustedProxyEnv(v: string | undefined): TrustedProxyConfig | null {
-  if (!v) return null;
-  if (v === 'none') return { mode: 'none' };
-  if (v === 'vercel') return { mode: 'vercel' };
-  if (v.startsWith('hops:')) { const hops = Number(v.slice(5)); return Number.isInteger(hops) && hops >= 1 ? { mode: 'hops', hops } : null; }
-  if (v.startsWith('cidrs:')) { const cidrs = v.slice(6).split(',').map((s) => s.trim()).filter(Boolean); return cidrs.length ? { mode: 'cidrs', cidrs } : null; }
-  return null;
 }
 
 /** Returns null (SDK stays inert, one log line) rather than throwing on bad config. */
