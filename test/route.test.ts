@@ -49,7 +49,7 @@ describe('GET (beacon script)', () => {
 });
 
 describe('POST (beacon relay)', () => {
-  it('answers 204 and relays to ingest with x-client-ip and tap injected', async () => {
+  it('answers 204 and batches the beacon as a sig:1 row with the resolved ip and tap', async () => {
     const a = fakeAnalyst();
     configure({ env: { ...ENV, CAMADA_TRUSTED_PROXY: 'hops:1' }, fetchImpl: a.fetchImpl });
     const { POST } = camadaRoute();
@@ -57,20 +57,20 @@ describe('POST (beacon relay)', () => {
     expect(res.status).toBe(204);
     expect(res.headers.get('cache-control')).toBe('no-store');
     await settle();
-    expect(a.beacons).toHaveLength(1);
-    expect(a.beacons[0].clientIp).toBe('9.9.9.9');
-    const relayed = JSON.parse(a.beacons[0].body) as Record<string, unknown>;
-    expect(relayed.tap).toBe('sdk-next');
-    expect(relayed.rid).toBe('abc');
+    expect(a.beacons).toHaveLength(0);   // no per-page-view POST /fp: it rides the /e batch
+    const rows = a.events.flat() as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ sig: 1, rid: 'abc', tz: 'UTC', ip: '9.9.9.9', tap: 'sdk-next' });
   });
 
-  it('relays an unparseable body as-is (the server validates)', async () => {
+  it('drops an unparseable body instead of shipping it', async () => {
     const a = fakeAnalyst();
     configure({ env: ENV, fetchImpl: a.fetchImpl });
     const res = await camadaRoute().POST(post('fp', 'not-json'));
     expect(res.status).toBe(204);
     await settle();
-    expect(a.beacons[0]?.body).toBe('not-json');
+    expect(a.beacons).toHaveLength(0);
+    expect(a.events.flat()).toHaveLength(0);
   });
 
   it('rejects oversized bodies with 413 and relays nothing', async () => {
