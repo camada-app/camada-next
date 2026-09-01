@@ -36,9 +36,12 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
       const ip = resolveClientIp(null, req.headers.get('x-forwarded-for'), trustedProxy(engine));
       const path = new URL(req.url).pathname;
 
+      // the same _sfp session as the collector and @camada/node: sid/ns comparable across taps
+      const existingSid = cookieValue(req.headers.get('cookie') || '', SESSION_COOKIE);
+
       const v = engine.snap.verdict({ ip, path });   // cold start fails open ('cold')
       if (v.block) {
-        const ev = buildEvent(req, path, ip, crypto.randomUUID());
+        const ev = buildEvent(req, path, ip, crypto.randomUUID(), existingSid, false);
         ev.st = 403;                                 // blocked requests always ship, unsampled
         engine.queue.push(ev);
         engine.queue.flush(waitUntil);
@@ -53,11 +56,12 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
       }
 
       const rid = crypto.randomUUID();
+      const sid = existingSid ?? crypto.randomUUID();
       const cfg = engine.snap.config;
       const excluded = (cfg?.exclude || []).some((x) => path.startsWith(x));
       if (!excluded && Math.random() < (cfg?.sample ?? 1)) {
         // st stays null: middleware ships pre-response, like the edge collector's tap.
-        engine.queue.push(buildEvent(req, path, ip, rid));
+        engine.queue.push(buildEvent(req, path, ip, rid, sid, !existingSid));
         engine.queue.flush(waitUntil);
       }
 
@@ -65,6 +69,10 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
       headers.set('x-camada-rid', rid);
       const res = NextResponse.next({ request: { headers } });
       res.headers.set('x-rid', rid);
+      if (!existingSid) {
+        const secure = new URL(req.url).protocol === 'https:' ? '; Secure' : '';
+        res.headers.append('set-cookie', `${SESSION_COOKIE}=${sid}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax${secure}`);
+      }
       return res;
     } catch (err) {
       logRateLimited(err);   // fail open: the app proceeds as if camada were not installed
@@ -73,7 +81,17 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
   };
 }
 
-function buildEvent(req: NextRequest, path: string, ip: string | null, rid: string): WireEvent {
+const SESSION_COOKIE = '_sfp';
+const cookieValue = (cookie: string, name: string): string | null => {
+  const src = '; ' + cookie;
+  const i = src.indexOf('; ' + name + '=');
+  if (i === -1) return null;
+  const start = i + name.length + 3;
+  const j = src.indexOf(';', start);
+  return src.slice(start, j === -1 ? undefined : j);
+};
+
+function buildEvent(req: NextRequest, path: string, ip: string | null, rid: string, sid: string | null, newSession: boolean): WireEvent {
   const url = new URL(req.url);
   return buildWireEvent(
     {
@@ -87,6 +105,6 @@ function buildEvent(req: NextRequest, path: string, ip: string | null, rid: stri
       ip,
       httpVersion: null,   // not observable in middleware
     },
-    { tap: TAP_NEXT, rid, ja4: req.headers.get('x-vercel-ja4-digest') },
+    { tap: TAP_NEXT, rid, sid, newSession, ja4: req.headers.get('x-vercel-ja4-digest') },
   );
 }

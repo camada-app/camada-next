@@ -89,3 +89,11 @@ npm install && npm run build && npm test && npm run check
 Sibling checkouts `camada-core`, `camada-browser`, `camada-react` must exist and be built
 (`file:` dependencies). The middleware behavior suite runs under the vitest `edge-runtime`
 environment; route handlers run under node.
+
+## Matcher requirement
+
+The middleware/proxy matcher decides where enforcement runs. The beacon route handlers
+(`/api/camada/*`) enforce the blocklist themselves, so blocked clients can never fetch the
+beacon even when your matcher excludes `/api/` — but every OTHER route your matcher excludes
+is invisible to camada: no blocking, no events. Keep the matcher as broad as the example's
+(`/((?!_next/|favicon.ico).*)`) unless you have a specific reason not to.

@@ -4,7 +4,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import iife from '@camada/browser/iife-string';
 import { camadaRoute } from '../src/route';
 import { configure } from '../src/engine';
-import { fakeAnalyst, ENV } from './harness';
+import { fakeAnalyst, ENV, BLOCKED_IP } from './harness';
 
 afterEach(() => configure());
 
@@ -91,5 +91,21 @@ describe('POST (beacon relay)', () => {
     expect(res.status).toBe(204);
     await settle();
     expect(a.beacons).toHaveLength(0);
+  });
+});
+
+describe('route-level enforcement (matcher-independent)', () => {
+  it('403s a blocked client on the beacon endpoints even when middleware never ran', async () => {
+    const a = fakeAnalyst();
+    configure({ env: { ...ENV, CAMADA_TRUSTED_PROXY: 'hops:1' }, fetchImpl: a.fetchImpl });
+    const { GET, POST } = camadaRoute();
+    // prime the lazy snapshot
+    await GET(new Request('https://app.example/api/camada/b.js'));
+    await new Promise((r) => setTimeout(r, 20));
+    const g = await GET(new Request('https://app.example/api/camada/b.js', { headers: { 'x-forwarded-for': BLOCKED_IP } }));
+    expect(g.status).toBe(403);
+    expect(g.headers.get('x-block-reason')).toBe('ip4');
+    const p = await POST(new Request('https://app.example/api/camada/fp', { method: 'POST', body: '{}', headers: { 'x-forwarded-for': BLOCKED_IP } }));
+    expect(p.status).toBe(403);
   });
 });

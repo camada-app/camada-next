@@ -8,8 +8,26 @@ jobs:
         node: [18.x, 20.x, 22.x]
     steps:
       - uses: actions/checkout@v4
+        with: { path: camada-next }
+      - uses: actions/checkout@v4
+        with: { repository: ${{ github.repository_owner }}/camada-core, path: camada-core }
+      - uses: actions/checkout@v4
+        with: { repository: ${{ github.repository_owner }}/camada-browser, path: camada-browser }
+      - uses: actions/checkout@v4
+        with: { repository: ${{ github.repository_owner }}/camada-react, path: camada-react }
       - uses: actions/setup-node@v4
         with: { node-version: ${{ matrix.node }} }
+      - run: npm install && npm run build
+        working-directory: camada-core
+      - run: npm install && npm run build
+        working-directory: camada-browser
+      - run: npm install && npm run build
+        working-directory: camada-react
       - run: npm install
+        working-directory: camada-next
       - run: npm run build
+        working-directory: camada-next
+      - run: npm run check
+        working-directory: camada-next
       - run: npm test
+        working-directory: camada-next
