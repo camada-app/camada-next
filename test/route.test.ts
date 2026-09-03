@@ -5,6 +5,7 @@ import iife from '@camada/browser/iife-string';
 import { camadaRoute } from '../src/route';
 import { configure } from '../src/engine';
 import { fakeAnalyst, ENV, BLOCKED_IP } from './harness';
+import { name, version } from '../package.json';
 
 afterEach(() => configure());
 
@@ -105,7 +106,31 @@ describe('route-level enforcement (matcher-independent)', () => {
     const g = await GET(new Request('https://app.example/api/camada/b.js', { headers: { 'x-forwarded-for': BLOCKED_IP } }));
     expect(g.status).toBe(403);
     expect(g.headers.get('x-block-reason')).toBe('ip4');
-    const p = await POST(new Request('https://app.example/api/camada/fp', { method: 'POST', body: '{}', headers: { 'x-forwarded-for': BLOCKED_IP } }));
+    const p = await POST(new Request('https://app.example/api/camada/fp', { method: 'POST', body: '{}', headers: { 'x-forwarded-for': BLOCKED_IP, cookie: '_sfp=s1' } }));
     expect(p.status).toBe(403);
+    await settle();
+    const evs = a.events.flat() as Array<Record<string, unknown>>;   // a beacon-route deny is a block like any other: it ships
+    expect(evs).toHaveLength(2);
+    expect(evs.map((e) => e.sid)).toEqual([null, 's1']);   // the session rides along when the client has one
+    for (const e of evs) {
+      expect(e.st).toBe(403);
+      expect(e.blk).toBe('ip4');
+      expect(e.tap).toBe('sdk-next');
+      expect(e.ip).toBe(BLOCKED_IP);
+      expect(e.p).toMatch(/^\/api\/camada\//);
+    }
+  });
+
+  it('identifies itself as @camada/next/<package version> on polls and batches', async () => {
+    const a = fakeAnalyst();
+    configure({ env: ENV, fetchImpl: a.fetchImpl });
+    const { GET, POST } = camadaRoute();
+    await GET(new Request('https://app.example/api/camada/b.js'));
+    await settle();
+    await POST(post('fp', JSON.stringify({ rid: 'r', tz: 'UTC' })));
+    await settle();
+    expect(name).toBe('@camada/next');   // the wire identity is the published package name
+    expect(new Set(a.sdkHeaders)).toEqual(new Set([`@camada/next/${version}`]));
+    expect(a.sdkHeaders.length).toBeGreaterThanOrEqual(2);   // ≥1 poll + 1 batch
   });
 });

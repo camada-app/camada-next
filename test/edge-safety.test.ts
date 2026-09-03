@@ -80,6 +80,6 @@ describe('edge-safety proof', () => {
     expect(res?.headers.get('x-block-reason')).toBe('ip4');
     await Promise.all(promises.splice(0));
     const evs = a.events.flat() as Array<Record<string, unknown>>;
-    expect(evs.some((e) => e.st === 403 && e.tap === 'sdk-next' && e.ip === BLOCKED_IP)).toBe(true);
+    expect(evs.some((e) => e.st === 403 && e.blk === 'ip4' && e.tap === 'sdk-next' && e.ip === BLOCKED_IP)).toBe(true);
   });
 });

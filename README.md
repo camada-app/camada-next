@@ -73,7 +73,9 @@ a real cold → blocked flow against the golden snapshot fixture.
   sorted at this tap (still shipped; the scorer's capability mask knows `sdk-next` lacks the
   raw-wire-order signal `@camada/node` has).
 - **Events ship pre-response** (`st: null`, like the edge collector's tap) — middleware
-  cannot see the final status. Blocked requests ship with `st: 403`.
+  cannot see the final status. Blocked requests ship with `st: 403` and `blk: <reason>`
+  (ip4|ip6|path); the beacon route handlers ship the same event when they deny. Every
+  snapshot poll and event batch carries `x-camada-sdk: @camada/next/<version>`.
 - **Serverless cold start fails open**: the first request on a cold instance sees no
   snapshot and passes; the snapshot loads via `waitUntil` and enforcement begins on the next
   request.

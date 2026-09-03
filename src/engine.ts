@@ -11,6 +11,8 @@ import {
   type TrustedProxyConfig,
 } from '@camada/core';
 
+import { SDK_ID } from './version';
+
 export { parseTrustedProxyEnv };   // re-export for callers that had reached into this module
 
 export interface ResolvedEnv {
@@ -81,8 +83,8 @@ export function getEngine(): Engine | null {
   engine = {
     env,
     fetchImpl: fetchImpl ?? fetch,
-    snap: new SnapshotClient({ url: env.snapshotUrl, token: env.snapToken, mode: 'lazy', ...injected }),
-    queue: new EventQueue({ url: env.ingestUrl, token: env.ingestToken, ...injected }),
+    snap: new SnapshotClient({ url: env.snapshotUrl, token: env.snapToken, mode: 'lazy', sdk: SDK_ID, ...injected }),
+    queue: new EventQueue({ url: env.ingestUrl, token: env.ingestToken, sdk: SDK_ID, ...injected }),
   };
   return engine;
 }

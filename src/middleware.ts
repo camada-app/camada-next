@@ -10,8 +10,9 @@
 // 'next/server', which is itself edge-safe.
 import type { NextFetchEvent, NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { buildWireEvent, resolveClientIp, logRateLimited, TAP_NEXT, type WireEvent } from '@camada/core';
+import { resolveClientIp, logRateLimited } from '@camada/core';
 import { getEngine, isDisabled, trustedProxy } from './engine';
+import { buildEvent, cookieValue, SESSION_COOKIE } from './event';
 
 export interface CamadaMiddlewareOptions {
   // Reserved. The engine is configured via CAMADA_* environment variables.
@@ -43,6 +44,7 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
       if (v.block) {
         const ev = buildEvent(req, path, ip, crypto.randomUUID(), existingSid, false);
         ev.st = 403;                                 // blocked requests always ship, unsampled
+        ev.blk = v.reason;                           // SDK-01: the reason rides the event so the analyst counts SDK blocks, not the app's own 403s
         engine.queue.push(ev);
         engine.queue.flush(waitUntil);
         return new Response('Forbidden', {
@@ -79,32 +81,4 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
       return undefined;
     }
   };
-}
-
-const SESSION_COOKIE = '_sfp';
-const cookieValue = (cookie: string, name: string): string | null => {
-  const src = '; ' + cookie;
-  const i = src.indexOf('; ' + name + '=');
-  if (i === -1) return null;
-  const start = i + name.length + 3;
-  const j = src.indexOf(';', start);
-  return src.slice(start, j === -1 ? undefined : j);
-};
-
-function buildEvent(req: NextRequest, path: string, ip: string | null, rid: string, sid: string | null, newSession: boolean): WireEvent {
-  const url = new URL(req.url);
-  return buildWireEvent(
-    {
-      method: req.method,
-      host: req.headers.get('host') ?? url.host,
-      path,
-      query: url.search,
-      // The edge runtime sorts header names, so hord is alphabetical at this tap — still
-      // shipped; the scorer knows sdk-next lacks the raw-wire-order signal (capability mask).
-      headers: [...req.headers.entries()],
-      ip,
-      httpVersion: null,   // not observable in middleware
-    },
-    { tap: TAP_NEXT, rid, sid, newSession, ja4: req.headers.get('x-vercel-ja4-digest') },
-  );
 }

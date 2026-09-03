@@ -45,6 +45,7 @@ describe('inline blocking', () => {
     const evs = a.events.flat() as Array<Record<string, unknown>>;
     expect(evs).toHaveLength(1);
     expect(evs[0].st).toBe(403);
+    expect(evs[0].blk).toBe('ip4');
     expect(evs[0].ip).toBe(BLOCKED_IP);
     expect(evs[0].tap).toBe('sdk-next');
   });
@@ -85,6 +86,7 @@ describe('request capture', () => {
     expect(e.p).toBe('/pricing');
     expect(e.q).toBe('?ref=x');
     expect(e.st).toBeNull();                     // ships pre-response, like the edge collector
+    expect(e.blk).toBeUndefined();
     expect(String(e.hord)).toContain('accept');  // sorted by the edge runtime, still shipped
   });
 
