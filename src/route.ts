@@ -9,6 +9,7 @@
 import iife from '@camada/browser/iife-string';
 import { guardedAsync, resolveClientIp, TAP_NEXT } from '@camada/core';
 import { getEngine, isDisabled, trustedProxy, type Engine } from './engine';
+import { buildEvent, cookieValue, SESSION_COOKIE } from './event';
 
 const FP_MAX = 32 * 1024;   // matches the server's /fp cap: never accept what ingest will 413
 const encoder = new TextEncoder();
@@ -20,10 +21,14 @@ const noContent = () => new Response(null, { status: 204, headers: { 'cache-cont
 // must not leave the beacon endpoints serving blocked clients.
 function blocked(engine: Engine, req: Request): Response | null {
   const ip = resolveClientIp(null, req.headers.get('x-forwarded-for'), trustedProxy(engine));
-  const v = engine.snap.verdict({ ip, path: new URL(req.url).pathname });
-  return v.block
-    ? new Response('Forbidden', { status: 403, headers: { 'x-block-reason': String(v.reason ?? ''), 'x-block-version': v.version ?? '' } })
-    : null;
+  const path = new URL(req.url).pathname;
+  const v = engine.snap.verdict({ ip, path });
+  if (!v.block) return null;
+  const ev = buildEvent(req, path, ip, crypto.randomUUID(), cookieValue(req.headers.get('cookie') || '', SESSION_COOKIE), false);
+  ev.st = 403; ev.blk = v.reason;   // SDK-01: a beacon-route deny is a block like any other — it ships, unsampled
+  engine.queue.push(ev);
+  void engine.queue.flush();
+  return new Response('Forbidden', { status: 403, headers: { 'x-block-reason': String(v.reason ?? ''), 'x-block-version': v.version ?? '' } });
 }
 
 function lastSegment(req: Request): string {
