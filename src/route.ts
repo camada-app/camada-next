@@ -8,7 +8,8 @@
 // disabled: GET 404s, POST answers 204 and drops — inert, never an error.
 import iife from '@camada/browser/iife-string';
 import { guardedAsync, resolveClientIp, TAP_NEXT } from '@camada/core';
-import { getEngine, isDisabled, trustedProxy, type Engine } from './engine';
+import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } from './engine';
+import { verifyChallenge } from './challenge';
 import { buildEvent, cookieValue, SESSION_COOKIE } from './event';
 
 const FP_MAX = 32 * 1024;   // matches the server's /fp cap: never accept what ingest will 413
@@ -60,6 +61,14 @@ export function camadaRoute(): {
     }, notFound()),
 
     POST: (req) => guardedAsync(async () => {
+      if (lastSegment(req) === 'challenge') {
+        const engine = activeEngine();
+        if (!engine || !challengeEnabled()) return notFound();
+        engine.snap.ensureFresh();
+        const deny = blocked(engine, req);   // a blocked client cannot buy its way past with a solution
+        if (deny) return deny;
+        return verifyChallenge(engine, req);
+      }
       if (lastSegment(req) !== 'fp') return notFound();
       const body = await req.text();
       if (encoder.encode(body).byteLength > FP_MAX) return new Response(null, { status: 413 });

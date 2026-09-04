@@ -11,19 +11,23 @@
 import type { NextFetchEvent, NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { resolveClientIp, logRateLimited } from '@camada/core';
-import { getEngine, isDisabled, trustedProxy } from './engine';
+import { getEngine, isDisabled, challengeEnabled, trustedProxy } from './engine';
+import { isChallengeRoute, challengePassed, serveChallenge } from './challenge';
 import { buildEvent, cookieValue, SESSION_COOKIE } from './event';
 
 export interface CamadaMiddlewareOptions {
   // Reserved. The engine is configured via CAMADA_* environment variables.
 }
 
+/** Next accepts a promise here; only the challenge branch returns one (it awaits WebCrypto). */
+export type MiddlewareResult = Response | undefined | Promise<Response | undefined>;
+
 /**
  * `export default camada();` from middleware.ts (Next ≤15) / proxy.ts (Next 16).
  * Returns undefined (Next continues) whenever camada is disabled, unconfigured, or broken.
  */
-export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, event: NextFetchEvent) => Response | undefined {
-  return function camadaMiddleware(req: NextRequest, event: NextFetchEvent): Response | undefined {
+export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, event: NextFetchEvent) => MiddlewareResult {
+  return function camadaMiddleware(req: NextRequest, event: NextFetchEvent): MiddlewareResult {
     try {
       if (isDisabled()) return undefined;
       const engine = getEngine();
@@ -55,6 +59,17 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
             'x-block-version': v.version ?? '',
           },
         });
+      }
+
+      // A challenge verdict: serve the proof-of-work page unless this client already passed.
+      // The verify route answers its own endpoint, so never challenge that path. A challenge
+      // needs a resolved ip (the nonce and `_cch` are bound to it) — without one, fail open,
+      // the same stance ip rules take at this position.
+      if (v.challenge && ip && challengeEnabled() && !isChallengeRoute(path)) {
+        return challengePassed(engine, req, ip).then(
+          (passed) => (passed ? undefined : serveChallenge(engine, req, ip, path + new URL(req.url).search, waitUntil)),
+          (err) => { logRateLimited(err); return undefined; },   // fail open, like the catch below
+        );
       }
 
       const rid = crypto.randomUUID();
