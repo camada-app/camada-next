@@ -140,6 +140,18 @@ describe('verifying the challenge', () => {
     expect(res?.status).not.toBe(403);
   });
 
+  it('keeps capturing a client that has passed — an hour of _cch is not an hour of blindness', async () => {
+    const { a, handler } = await primed();
+    const cookie = (await pass(handler)).headers.get('set-cookie')!.split(';')[0];
+    a.events.length = 0;
+    const ev = fakeEvent();
+    const res = (await handler(req('/cart', { ...HTML, cookie, 'x-forwarded-for': CHALLENGED_IP }), asEvent(ev)))!;
+    await ev.settled();
+    expect(res.headers.get('x-rid')).toBeTruthy();                       // the rid the beacon correlates on
+    expect(res.headers.get('x-middleware-request-x-camada-rid') ?? res.headers.get('x-rid')).toBeTruthy();
+    expect(events(a).some((e) => e.tap === 'sdk-next')).toBe(true);       // and the request is still reported
+  });
+
   it('does not accept a cookie minted for another ip', async () => {
     const { handler } = await primed();
     const cookie = (await pass(handler)).headers.get('set-cookie')!.split(';')[0];
@@ -178,6 +190,25 @@ describe('verifying the challenge', () => {
     expect(res.status).toBe(403);
     expect(res.headers.get('x-block-reason')).toBe('ip4');
   });
+
+  it('refuses an oversized body instead of buffering it', async () => {
+    await primed();
+    const res = await verify(`nonce=x&solution=1&to=%2F&pad=${'a'.repeat(5000)}`);
+    expect(res.status).toBe(413);
+  });
+
+  it('fails open instead of 500ing when the challenge path throws', async () => {
+    const { handler } = await primed();
+    const subtle = globalThis.crypto.subtle;
+    Object.defineProperty(globalThis.crypto, 'subtle', { value: undefined, configurable: true });
+    try {
+      // serveChallenge awaits WebCrypto; without it the kit throws. The app must proceed, not 500.
+      const res = await handler(req('/cart', { ...HTML, 'x-forwarded-for': CHALLENGED_IP }), asEvent(fakeEvent()));
+      expect(res?.status).not.toBe(500);
+    } finally {
+      Object.defineProperty(globalThis.crypto, 'subtle', { value: subtle, configurable: true });
+    }
+  });
 });
 
 describe('challengeGate()', () => {
@@ -195,5 +226,22 @@ describe('challengeGate()', () => {
     const again = await challengeGate(new Request('https://app.example/challenge-me', { headers: { ...HTML, cookie, 'x-forwarded-for': '8.8.8.8' } }));
     expect(again).toBeNull();
     void handler;
+  });
+
+  it('ships one event per request: silent when the middleware already reported it', async () => {
+    const { a } = await primed();
+    // x-camada-rid is what the middleware stamps on the request it forwards.
+    const gate = await challengeGate(new Request('https://app.example/challenge-me', {
+      headers: { ...HTML, 'x-forwarded-for': '8.8.8.8', 'x-camada-rid': 'already-captured' },
+    }));
+    expect(gate!.status).toBe(403);
+    expect(events(a).filter((e) => e.blk === 'challenge')).toHaveLength(0);
+  });
+
+  it('ships the challenge row itself when the middleware did not cover the route', async () => {
+    const { a } = await primed();
+    const gate = await challengeGate(new Request('https://app.example/challenge-me', { headers: { ...HTML, 'x-forwarded-for': '8.8.8.8' } }));
+    expect(gate!.status).toBe(403);
+    expect(events(a).filter((e) => e.blk === 'challenge')).toHaveLength(1);
   });
 });
