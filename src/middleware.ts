@@ -10,8 +10,8 @@
 // 'next/server', which is itself edge-safe.
 import type { NextFetchEvent, NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { resolveClientIp, logRateLimited } from '@camada/core';
-import { getEngine, isDisabled, challengeEnabled, trustedProxy } from './engine';
+import { resolveClientIp, logRateLimited, guardedAsync } from '@camada/core';
+import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } from './engine';
 import { isChallengeRoute, challengePassed, serveChallenge } from './challenge';
 import { buildEvent, cookieValue, SESSION_COOKIE } from './event';
 
@@ -21,6 +21,29 @@ export interface CamadaMiddlewareOptions {
 
 /** Next accepts a promise here; only the challenge branch returns one (it awaits WebCrypto). */
 export type MiddlewareResult = Response | undefined | Promise<Response | undefined>;
+
+/** The ordinary path: ship one pre-response event, stamp the rid, mint the session cookie. */
+function capture(engine: Engine, req: NextRequest, path: string, ip: string | null, existingSid: string | null, waitUntil?: (p: Promise<unknown>) => void): Response {
+  const rid = crypto.randomUUID();
+  const sid = existingSid ?? crypto.randomUUID();
+  const cfg = engine.snap.config;
+  const excluded = (cfg?.exclude || []).some((x) => path.startsWith(x));
+  if (!excluded && Math.random() < (cfg?.sample ?? 1)) {
+    // st stays null: middleware ships pre-response, like the edge collector's tap.
+    engine.queue.push(buildEvent(req, path, ip, rid, sid, !existingSid));
+    engine.queue.flush(waitUntil);
+  }
+
+  const headers = new Headers(req.headers);
+  headers.set('x-camada-rid', rid);
+  const res = NextResponse.next({ request: { headers } });
+  res.headers.set('x-rid', rid);
+  if (!existingSid) {
+    const secure = new URL(req.url).protocol === 'https:' ? '; Secure' : '';
+    res.headers.append('set-cookie', `${SESSION_COOKIE}=${sid}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax${secure}`);
+  }
+  return res;
+}
 
 /**
  * `export default camada();` from middleware.ts (Next ≤15) / proxy.ts (Next 16).
@@ -65,32 +88,19 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
       // The verify route answers its own endpoint, so never challenge that path. A challenge
       // needs a resolved ip (the nonce and `_cch` are bound to it) — without one, fail open,
       // the same stance ip rules take at this position.
+      // A client that HAS passed falls through to the normal capture path: it keeps its rid,
+      // its session cookie and its event, so an hour of `_cch` is not an hour of blindness.
+      // guardedAsync covers the whole branch — the synchronous catch below cannot see a
+      // rejection from these awaits, and WebCrypto is not guaranteed to exist.
       if (v.challenge && ip && challengeEnabled() && !isChallengeRoute(path)) {
-        return challengePassed(engine, req, ip).then(
-          (passed) => (passed ? undefined : serveChallenge(engine, req, ip, path + new URL(req.url).search, waitUntil)),
-          (err) => { logRateLimited(err); return undefined; },   // fail open, like the catch below
-        );
+        return guardedAsync(async () => (
+          (await challengePassed(engine, req, ip))
+            ? capture(engine, req, path, ip, existingSid, waitUntil)
+            : serveChallenge(engine, req, ip, path + new URL(req.url).search, waitUntil)
+        ), undefined);
       }
 
-      const rid = crypto.randomUUID();
-      const sid = existingSid ?? crypto.randomUUID();
-      const cfg = engine.snap.config;
-      const excluded = (cfg?.exclude || []).some((x) => path.startsWith(x));
-      if (!excluded && Math.random() < (cfg?.sample ?? 1)) {
-        // st stays null: middleware ships pre-response, like the edge collector's tap.
-        engine.queue.push(buildEvent(req, path, ip, rid, sid, !existingSid));
-        engine.queue.flush(waitUntil);
-      }
-
-      const headers = new Headers(req.headers);
-      headers.set('x-camada-rid', rid);
-      const res = NextResponse.next({ request: { headers } });
-      res.headers.set('x-rid', rid);
-      if (!existingSid) {
-        const secure = new URL(req.url).protocol === 'https:' ? '; Secure' : '';
-        res.headers.append('set-cookie', `${SESSION_COOKIE}=${sid}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax${secure}`);
-      }
-      return res;
+      return capture(engine, req, path, ip, existingSid, waitUntil);
     } catch (err) {
       logRateLimited(err);   // fail open: the app proceeds as if camada were not installed
       return undefined;

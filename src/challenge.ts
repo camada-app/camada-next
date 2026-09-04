@@ -11,8 +11,11 @@ import {
 import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } from './engine';
 import { buildEvent, cookieValue, SESSION_COOKIE } from './event';
 
-/** Where the page posts: the conventional mount of the catch-all route handler. */
+/** Where the page posts. The catch-all route handler must be mounted at /api/camada/[...camada]
+ *  (the documented install) — the served page hard-codes this action. */
 export const VERIFY_PATH = '/api/camada/challenge';
+
+const BODY_MAX = 4 * 1024;   // the verify form is ~120 bytes; anything larger is not ours
 
 /** The app may mount the catch-all elsewhere, so the middleware matches on the tail. */
 export const isChallengeRoute = (path: string): boolean => /\/camada\/challenge\/?$/.test(path);
@@ -34,12 +37,14 @@ export function challengePassed(engine: Engine, req: Request, ip: string): Promi
 
 /** 403 + the proof-of-work page (HTML navigations) or 403 JSON (everything else), plus the
  *  `blk: "challenge"` event — a served challenge is reported like a block (contract §D2). */
-export async function serveChallenge(engine: Engine, req: Request, ip: string, target: string, waitUntil?: (p: Promise<unknown>) => void): Promise<Response> {
-  const ev = buildEvent(req, new URL(req.url).pathname, ip, crypto.randomUUID(), cookieValue(req.headers.get('cookie') || '', SESSION_COOKIE), false);
-  ev.st = 403;
-  ev.blk = 'challenge';
-  engine.queue.push(ev);
-  engine.queue.flush(waitUntil);
+export async function serveChallenge(engine: Engine, req: Request, ip: string, target: string, waitUntil?: (p: Promise<unknown>) => void, ship = true): Promise<Response> {
+  if (ship) {
+    const ev = buildEvent(req, new URL(req.url).pathname, ip, crypto.randomUUID(), cookieValue(req.headers.get('cookie') || '', SESSION_COOKIE), false);
+    ev.st = 403;
+    ev.blk = 'challenge';
+    engine.queue.push(ev);
+    engine.queue.flush(waitUntil);
+  }
 
   if (!wantsHtml(req.headers.get('accept'), req.headers.get('sec-fetch-dest'))) {
     return new Response('{"error":"challenge_required"}', {
@@ -59,7 +64,12 @@ export async function verifyChallenge(engine: Engine, req: Request): Promise<Res
   const url = new URL(req.url);
   const ip = clientIp(engine, req);
   const kit = kitFor(engine);
-  const form = parseFormBody(await req.text());
+  // camada answers this path before the app runs, so it must not become a place to post
+  // hundreds of megabytes at an unauthenticated endpoint.
+  if (Number(req.headers.get('content-length')) > BODY_MAX) return new Response(null, { status: 413 });
+  const body = await req.text();
+  if (body.length > BODY_MAX) return new Response(null, { status: 413 });
+  const form = parseFormBody(body);
   const to = safeReturnTo(form.to);
   const now = Date.now();
   if (!ip || !(await kit.verify(ip, now, form.nonce, form.solution))) {
@@ -82,7 +92,13 @@ export async function verifyChallenge(engine: Engine, req: Request): Promise<Res
 }
 
 /** For a route that wants to gate itself (the example's /challenge-me): the challenge Response,
- *  or null when this client already holds a valid `_cch` and the route should render normally. */
+ *  or null when this client already holds a valid `_cch` and the route should render normally.
+ *
+ *  One request, one event. The middleware stamps `x-camada-rid` on the request it forwards, so
+ *  its presence means the middleware already shipped this request's row; the gate then serves
+ *  the page WITHOUT a second row, which would double-count the request at the analyst. Exclude
+ *  the gated route from the middleware matcher and the gate ships the `blk: "challenge"` row
+ *  itself — that is the configuration to use when you want the challenge counted. */
 export async function challengeGate(req: Request): Promise<Response | null> {
   if (isDisabled() || !challengeEnabled()) return null;
   const engine = getEngine();
@@ -90,5 +106,5 @@ export async function challengeGate(req: Request): Promise<Response | null> {
   const ip = clientIp(engine, req);
   if (!ip || await challengePassed(engine, req, ip)) return null;   // unidentifiable client: fail open
   const url = new URL(req.url);
-  return serveChallenge(engine, req, ip, url.pathname + url.search);
+  return serveChallenge(engine, req, ip, url.pathname + url.search, undefined, !req.headers.has('x-camada-rid'));
 }
