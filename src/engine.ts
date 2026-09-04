@@ -18,6 +18,7 @@ export { parseTrustedProxyEnv };   // re-export for callers that had reached int
 export interface ResolvedEnv {
   ingestToken: string;
   snapToken: string;
+  secret: string;                            // HMAC key for the challenge nonce/cookie — never leaves the process
   ingestUrl: string;
   snapshotUrl: string;
   trustedProxy: TrustedProxyConfig | null;   // null = defer to server-delivered config
@@ -32,6 +33,7 @@ export function resolveEnv(env: Record<string, string | undefined>): ResolvedEnv
   const ingestUrl = (env.CAMADA_INGEST_URL || 'https://in.camada.dev').replace(/\/$/, '');   // PLACEHOLDER default — confirm the production ingest domain before any npm publish
   return {
     ingestToken, snapToken, ingestUrl,
+    secret: env.CAMADA_KEY || `${ingestToken}.${snapToken}`,
     snapshotUrl: env.CAMADA_SNAPSHOT_URL || `${ingestUrl}/snapshot`,
     // On Vercel the platform overwrites X-Forwarded-For, so its rightmost entry is
     // trustworthy: default to vercel mode there unless explicitly overridden.
@@ -49,6 +51,8 @@ export interface Engine {
 export interface ConfigureOptions {
   env?: Record<string, string | undefined>;
   fetchImpl?: typeof fetch;
+  challenge?: boolean;        // enforce `challenge` verdicts with the first-party page (default true)
+  snapshotVersion?: 3 | 4;    // 3 opts out of the v4 allow/challenge sections
 }
 
 let engine: Engine | null | undefined;   // undefined = not built yet; null = unconfigured
@@ -71,6 +75,11 @@ export function isDisabled(): boolean {
   return envSource().CAMADA_DISABLED === '1';
 }
 
+/** SDK-04 is on unless the app opts out in code or with CAMADA_CHALLENGE=0. */
+export function challengeEnabled(): boolean {
+  return overrides.challenge !== false && envSource().CAMADA_CHALLENGE !== '0';
+}
+
 export function getEngine(): Engine | null {
   if (engine !== undefined) return engine;
   const env = resolveEnv(envSource());
@@ -83,7 +92,7 @@ export function getEngine(): Engine | null {
   engine = {
     env,
     fetchImpl: fetchImpl ?? fetch,
-    snap: new SnapshotClient({ url: env.snapshotUrl, token: env.snapToken, mode: 'lazy', sdk: SDK_ID, ...injected }),
+    snap: new SnapshotClient({ url: env.snapshotUrl, token: env.snapToken, mode: 'lazy', sdk: SDK_ID, snapshotVersion: overrides.snapshotVersion ?? 4, ...injected }),
     queue: new EventQueue({ url: env.ingestUrl, token: env.ingestToken, sdk: SDK_ID, ...injected }),
   };
   return engine;
