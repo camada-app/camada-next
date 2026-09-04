@@ -37,7 +37,7 @@ describe('inline blocking', () => {
     const a = fakeAnalyst();
     const handler = await primed(a, { CAMADA_TRUSTED_PROXY: 'hops:1' });
     const ev = fakeEvent();
-    const res = handler(req('/', { 'x-forwarded-for': BLOCKED_IP }), asEvent(ev));
+    const res = await handler(req('/', { 'x-forwarded-for': BLOCKED_IP }), asEvent(ev));
     expect(res?.status).toBe(403);
     expect(res?.headers.get('x-block-reason')).toBe('ip4');
     expect(res?.headers.get('x-block-version')).toBeTruthy();
@@ -53,7 +53,7 @@ describe('inline blocking', () => {
   it('ignores a spoofed XFF without trusted-proxy config', async () => {
     const a = fakeAnalyst();
     const handler = await primed(a);   // no CAMADA_TRUSTED_PROXY, server config mode none
-    const res = handler(req('/', { 'x-forwarded-for': BLOCKED_IP }), asEvent(fakeEvent()));
+    const res = await handler(req('/', { 'x-forwarded-for': BLOCKED_IP }), asEvent(fakeEvent()));
     expect(res?.status).not.toBe(403);
   });
 
@@ -62,7 +62,7 @@ describe('inline blocking', () => {
     a.snapshotDown = true;
     const handler = mw(a, { CAMADA_TRUSTED_PROXY: 'hops:1' });
     const ev = fakeEvent();
-    const res = handler(req('/', { 'x-forwarded-for': BLOCKED_IP }), asEvent(ev));
+    const res = await handler(req('/', { 'x-forwarded-for': BLOCKED_IP }), asEvent(ev));
     expect(res?.status).not.toBe(403);           // Next continues: fail open
     expect(res?.headers.get('x-rid')).toBeTruthy();
     await ev.settled();                          // load + flush promises must not reject
@@ -74,7 +74,7 @@ describe('request capture', () => {
     const a = fakeAnalyst();
     const handler = await primed(a);
     const ev = fakeEvent();
-    const res = handler(req('/pricing?ref=x', { accept: 'text/html' }), asEvent(ev));
+    const res = await handler(req('/pricing?ref=x', { accept: 'text/html' }), asEvent(ev));
     const rid = res?.headers.get('x-rid');
     expect(rid).toMatch(/^[0-9a-f-]{36}$/);
     // NextResponse.next({request}) encodes the forwarded request headers onto the response:
@@ -127,7 +127,7 @@ describe('fail-open envelope', () => {
   it('CAMADA_DISABLED=1 returns undefined (checked per request)', async () => {
     const a = fakeAnalyst();
     const handler = mw(a, { CAMADA_DISABLED: '1', CAMADA_TRUSTED_PROXY: 'hops:1' });
-    const res = handler(req('/', { 'x-forwarded-for': BLOCKED_IP }), asEvent(fakeEvent()));
+    const res = await handler(req('/', { 'x-forwarded-for': BLOCKED_IP }), asEvent(fakeEvent()));
     expect(res).toBeUndefined();
   });
 
@@ -135,7 +135,7 @@ describe('fail-open envelope', () => {
     const a = fakeAnalyst();
     configure({ env: {}, fetchImpl: a.fetchImpl });
     const handler = camada();
-    const res = handler(req('/'), asEvent(fakeEvent()));
+    const res = await handler(req('/'), asEvent(fakeEvent()));
     expect(res).toBeUndefined();
     expect(getEngine()).toBeNull();
   });
@@ -145,7 +145,7 @@ describe('fail-open envelope', () => {
     const handler = await primed(a);
     a.ingestDown = true;
     const ev = fakeEvent();
-    const res = handler(req('/'), asEvent(ev));
+    const res = await handler(req('/'), asEvent(ev));
     expect(res?.headers.get('x-rid')).toBeTruthy();
     await ev.settled();                          // flush swallows the failure
   });
@@ -156,7 +156,7 @@ describe('session cookie (_sfp, same as the collector and @camada/node)', () => 
     const a = fakeAnalyst();
     const handler = await primed(a);
     const ev = fakeEvent();
-    const res = handler(req('/'), asEvent(ev))!;
+    const res = (await handler(req('/'), asEvent(ev)))!;
     await ev.settled();
     const cookie = res.headers.get('set-cookie') || '';
     expect(cookie).toContain('_sfp=');
@@ -170,7 +170,7 @@ describe('session cookie (_sfp, same as the collector and @camada/node)', () => 
     const a = fakeAnalyst();
     const handler = await primed(a);
     const ev = fakeEvent();
-    const res = handler(req('/', { cookie: '_sfp=known-sid; other=1' }), asEvent(ev))!;
+    const res = (await handler(req('/', { cookie: '_sfp=known-sid; other=1' }), asEvent(ev)))!;
     await ev.settled();
     expect(res.headers.get('set-cookie')).toBeNull();
     const sent = a.events.flat()[0] as Record<string, unknown>;
