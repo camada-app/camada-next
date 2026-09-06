@@ -1,5 +1,7 @@
-// track() — app-context outcome events (login_failed, signup, purchase, …) recorded from a
-// server action, route handler, or server component, joined to the middleware's wire event
+// track() — app-context outcome events recorded from a server action, route handler, or server
+// component, joined to the middleware's wire event. The name is free-form; the analyst's rules read
+// this vocabulary: login_failed, login_succeeded, signup, password_reset, mfa_failed, payment_failed,
+// payment_succeeded, coupon_failed (@camada/node README has the table). Events are joined
 // through the x-camada-rid request header and the _sfp session cookie. The identifier is
 // HMAC-hashed in-process with the ingest token: the raw value never reaches the queue, and
 // the analyst drops anything that is not hash-shaped anyway.
