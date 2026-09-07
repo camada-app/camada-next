@@ -23,13 +23,17 @@ const noContent = () => new Response(null, { status: 204, headers: { 'cache-cont
 function blocked(engine: Engine, req: Request): Response | null {
   const ip = resolveClientIp(null, req.headers.get('x-forwarded-for'), trustedProxy(engine));
   const path = new URL(req.url).pathname;
-  const v = engine.snap.verdict({ ip, path });
+  // §D3: `ua` and `header` rules need these; `Headers.get` already matches names case-insensitively
+  const v = engine.snap.verdict({ ip, path, ua: req.headers.get('user-agent'), header: (n) => req.headers.get(n) });
   if (!v.block) return null;
   const ev = buildEvent(req, path, ip, crypto.randomUUID(), cookieValue(req.headers.get('cookie') || '', SESSION_COOKIE), false);
   ev.st = 403; ev.blk = v.reason;   // SDK-01: a beacon-route deny is a block like any other — it ships, unsampled
+  if (v.rule) ev.rl = v.rule;
   engine.queue.push(ev);
   void engine.queue.flush();
-  return new Response('Forbidden', { status: 403, headers: { 'x-block-reason': String(v.reason ?? ''), 'x-block-version': v.version ?? '' } });
+  const headers: Record<string, string> = { 'x-block-reason': String(v.reason ?? ''), 'x-block-version': v.version ?? '' };
+  if (v.rule) headers['x-block-rule'] = v.rule;
+  return new Response('Forbidden', { status: 403, headers });
 }
 
 function lastSegment(req: Request): string {
