@@ -22,15 +22,18 @@ export interface CamadaMiddlewareOptions {
 /** Next accepts a promise here; only the challenge branch returns one (it awaits WebCrypto). */
 export type MiddlewareResult = Response | undefined | Promise<Response | undefined>;
 
-/** The ordinary path: ship one pre-response event, stamp the rid, mint the session cookie. */
-function capture(engine: Engine, req: NextRequest, path: string, ip: string | null, existingSid: string | null, waitUntil?: (p: Promise<unknown>) => void): Response {
+/** The ordinary path: ship one pre-response event, stamp the rid, mint the session cookie.
+ *  `warnRule` is the id of the `warn` rule that let this request through, if one did (§D3). */
+function capture(engine: Engine, req: NextRequest, path: string, ip: string | null, existingSid: string | null, warnRule: string | null, waitUntil?: (p: Promise<unknown>) => void): Response {
   const rid = crypto.randomUUID();
   const sid = existingSid ?? crypto.randomUUID();
   const cfg = engine.snap.config;
   const excluded = (cfg?.exclude || []).some((x) => path.startsWith(x));
   if (!excluded && Math.random() < (cfg?.sample ?? 1)) {
     // st stays null: middleware ships pre-response, like the edge collector's tap.
-    engine.queue.push(buildEvent(req, path, ip, rid, sid, !existingSid));
+    const ev = buildEvent(req, path, ip, rid, sid, !existingSid);
+    if (warnRule) ev.wrn = warnRule;
+    engine.queue.push(ev);
     engine.queue.flush(waitUntil);
   }
 
@@ -67,22 +70,30 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
       // the same _sfp session as the collector and @camada/node: sid/ns comparable across taps
       const existingSid = cookieValue(req.headers.get('cookie') || '', SESSION_COOKIE);
 
-      const v = engine.snap.verdict({ ip, path });   // cold start fails open ('cold')
+      // The custom rules read the user agent and the request headers (§D3); without them every
+      // `ua` and `header` condition is false. `Headers.get` is case-insensitive, so the
+      // lower-cased name the matcher asks with finds whatever spelling the client sent.
+      const v = engine.snap.verdict({
+        ip, path, ua: req.headers.get('user-agent'), header: (n) => req.headers.get(n),
+      });   // cold start fails open ('cold')
       if (v.block) {
         const ev = buildEvent(req, path, ip, crypto.randomUUID(), existingSid, false);
         ev.st = 403;                                 // blocked requests always ship, unsampled
-        ev.blk = v.reason;                           // SDK-01: the reason rides the event so the analyst counts SDK blocks, not the app's own 403s
+        ev.blk = v.reason;                           // SDK-01: the reason rides the event so the analyst counts SDK blocks, not the app's own 403s ('rule' when a rule decided)
+        if (v.rule) ev.rl = v.rule;
         engine.queue.push(ev);
         engine.queue.flush(waitUntil);
-        return new Response('Forbidden', {
-          status: 403,
-          headers: {
-            'content-type': 'text/plain',
-            'x-block-reason': String(v.reason ?? ''),
-            'x-block-version': v.version ?? '',
-          },
-        });
+        const headers: Record<string, string> = {
+          'content-type': 'text/plain',
+          'x-block-reason': String(v.reason ?? ''),
+          'x-block-version': v.version ?? '',
+        };
+        if (v.rule) headers['x-block-rule'] = v.rule;   // a custom rule blocked: name it, so the customer knows which row to edit
+        return new Response('Forbidden', { status: 403, headers });
       }
+      // `warn` passes the request and only marks its event; a skip passes with nothing
+      // stamped — it is the absence of enforcement.
+      const warnRule = v.warn ? v.rule ?? null : null;
 
       // A challenge verdict: serve the proof-of-work page unless this client already passed.
       // The verify route answers its own endpoint, so never challenge that path. A challenge
@@ -95,12 +106,12 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
       if (v.challenge && ip && challengeEnabled() && !isChallengeRoute(path)) {
         return guardedAsync(async () => (
           (await challengePassed(engine, req, ip))
-            ? capture(engine, req, path, ip, existingSid, waitUntil)
+            ? capture(engine, req, path, ip, existingSid, warnRule, waitUntil)
             : serveChallenge(engine, req, ip, path + new URL(req.url).search, waitUntil)
         ), undefined);
       }
 
-      return capture(engine, req, path, ip, existingSid, waitUntil);
+      return capture(engine, req, path, ip, existingSid, warnRule, waitUntil);
     } catch (err) {
       logRateLimited(err);   // fail open: the app proceeds as if camada were not installed
       return undefined;
