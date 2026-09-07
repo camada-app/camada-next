@@ -8,7 +8,7 @@
 // edge-runtime-safe: Web APIs and process.env reads only, no node: imports.
 import {
   SnapshotClient, EventQueue, parseKey, parseTrustedProxyEnv, logRateLimited,
-  type TrustedProxyConfig,
+  type SnapshotVersion, type TrustedProxyConfig,
 } from '@camada/core';
 
 import { SDK_ID } from './version';
@@ -52,7 +52,7 @@ export interface ConfigureOptions {
   env?: Record<string, string | undefined>;
   fetchImpl?: typeof fetch;
   challenge?: boolean;        // enforce `challenge` verdicts with the first-party page (default true)
-  snapshotVersion?: 3 | 4;    // 3 opts out of the v4 allow/challenge sections
+  snapshotVersion?: SnapshotVersion;   // 5 (default) also carries the tenant's ordered custom rules; 4 the allow/challenge sides only; 3 opts out of both
 }
 
 let engine: Engine | null | undefined;   // undefined = not built yet; null = unconfigured
@@ -92,7 +92,8 @@ export function getEngine(): Engine | null {
   engine = {
     env,
     fetchImpl: fetchImpl ?? fetch,
-    snap: new SnapshotClient({ url: env.snapshotUrl, token: env.snapToken, mode: 'lazy', sdk: SDK_ID, snapshotVersion: overrides.snapshotVersion ?? 4, ...injected }),
+    // snapshotVersion left undefined takes core's default (5); the client drops undefined keys.
+    snap: new SnapshotClient({ url: env.snapshotUrl, token: env.snapToken, mode: 'lazy', sdk: SDK_ID, snapshotVersion: overrides.snapshotVersion, ...injected }),
     queue: new EventQueue({ url: env.ingestUrl, token: env.ingestToken, sdk: SDK_ID, ...injected }),
   };
   return engine;
