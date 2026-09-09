@@ -50,6 +50,20 @@ describe('GET (beacon script)', () => {
 });
 
 describe('POST (beacon relay)', () => {
+  it('404s and relays nothing when the tenant disabled the beacon', async () => {
+    const a = fakeAnalyst();
+    a.config.beacon = false;
+    configure({ env: ENV, fetchImpl: a.fetchImpl });
+    const { POST } = camadaRoute();
+    await POST(post('fp', JSON.stringify({ rid: 'abc' })));   // kicks the lazy snapshot/config load (this one still relays: the config is not in yet)
+    await settle();
+    const before = a.events.flat().length;
+    const res = await POST(post('fp', JSON.stringify({ rid: 'abc', tz: 'UTC' })));
+    expect(res.status).toBe(404);   // as GET b.js, and as @camada/node and @camada/hono stand both endpoints down
+    await settle();
+    expect(a.events.flat()).toHaveLength(before);
+  });
+
   it('answers 204 and batches the beacon as a sig:1 row with the resolved ip and tap', async () => {
     const a = fakeAnalyst();
     configure({ env: { ...ENV, CAMADA_TRUSTED_PROXY: 'hops:1' }, fetchImpl: a.fetchImpl });
