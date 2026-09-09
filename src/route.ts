@@ -45,6 +45,9 @@ function activeEngine(): Engine | null {
   return isDisabled() ? null : getEngine();
 }
 
+// tenant switch: both beacon endpoints stand down together (b.js and fp), as node's and hono's do
+const beaconOff = (engine: Engine): boolean => engine.snap.config?.beacon === false;
+
 export function camadaRoute(): {
   GET: (req: Request) => Promise<Response>;
   POST: (req: Request) => Promise<Response>;
@@ -57,7 +60,7 @@ export function camadaRoute(): {
       engine.snap.ensureFresh();
       const deny = blocked(engine, req);
       if (deny) return deny;
-      if (engine.snap.config?.beacon === false) return notFound();   // tenant disabled the beacon
+      if (beaconOff(engine)) return notFound();
       return new Response(iife, {
         status: 200,
         headers: { 'content-type': 'application/javascript', 'cache-control': 'public, max-age=3600' },
@@ -81,7 +84,7 @@ export function camadaRoute(): {
         engine.snap.ensureFresh();
         const deny = blocked(engine, req);
         if (deny) return deny;
-        if (engine.snap.config?.beacon === false) return notFound();   // tenant disabled the beacon: stand fp down as well as b.js
+        if (beaconOff(engine)) return notFound();
         const ip = resolveClientIp(null, req.headers.get('x-forwarded-for'), trustedProxy(engine));
         let parsed: unknown;
         try { parsed = JSON.parse(body); } catch { return noContent(); }   // not a beacon: drop it, never ship junk
