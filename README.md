@@ -51,6 +51,7 @@ rate-limited `console.error` says why.
 - **`camadaRoute()`** — `GET …/b.js` serves the `@camada/browser` IIFE first-party (no CSP
   or ad-blocker friction); `POST …/fp` relays the beacon body to ingest with the
   trusted-proxy-resolved client IP and `tap: 'sdk-next'` injected. Works on both runtimes.
+  Both endpoints go inert (404) when the project turns the beacon off in its settings.
 - **`<CamadaBeacon/>`** — async server component; reads the middleware's `x-camada-rid` via
   `next/headers` and renders `<script src="/api/camada/b.js?r=<rid>" async>` so the beacon
   POST joins the server-side wire event.
