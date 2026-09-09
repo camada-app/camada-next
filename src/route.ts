@@ -81,6 +81,7 @@ export function camadaRoute(): {
         engine.snap.ensureFresh();
         const deny = blocked(engine, req);
         if (deny) return deny;
+        if (engine.snap.config?.beacon === false) return notFound();   // tenant disabled the beacon: stand fp down as well as b.js
         const ip = resolveClientIp(null, req.headers.get('x-forwarded-for'), trustedProxy(engine));
         let parsed: unknown;
         try { parsed = JSON.parse(body); } catch { return noContent(); }   // not a beacon: drop it, never ship junk
