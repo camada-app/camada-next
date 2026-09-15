@@ -33,7 +33,7 @@ import { CamadaBeacon } from '@camada/next';
 CAMADA_KEY=<ingest_token>.<snap_token>
 ```
 
-Optional env: `CAMADA_INGEST_URL` (default `https://in.camada.dev`), `CAMADA_SNAPSHOT_URL`
+Optional env: `CAMADA_INGEST_URL` (default `https://in.camada.app`), `CAMADA_SNAPSHOT_URL`
 (default ingest + `/snapshot`), `CAMADA_TRUSTED_PROXY` (`none | vercel | hops:N |
 cidrs:a,b`), `CAMADA_DISABLED=1` (kill switch, checked per request). Unconfigured, the SDK
 is inert: the middleware returns `undefined`, the route handlers answer 404/204, and one
