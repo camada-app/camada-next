@@ -39,7 +39,9 @@ async function capture(engine: Engine, req: NextRequest, path: string, ip: strin
 
   const headers = new Headers(req.headers);
   headers.set('x-camada-rid', rid);
-  headers.set(MW_HEADER, await middlewareMark(engine.env.secret, rid));   // WebCrypto: the one await on this path
+  // WebCrypto, the one await on this path; without it the request still goes through, just unproven (withCamada then ships too).
+  const mark = await middlewareMark(engine.env.secret, rid).catch(() => null);
+  if (mark) headers.set(MW_HEADER, mark);
   const res = NextResponse.next({ request: { headers } });
   res.headers.set('x-rid', rid);
   if (!existingSid) {
