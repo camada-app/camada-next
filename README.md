@@ -3,8 +3,13 @@
 camada backend SDK for Next.js (app router): edge-safe middleware/proxy enforcement, the
 `/api/camada` route handlers that serve the fingerprint beacon first-party, and a
 `<CamadaBeacon/>` server component carrying the request's `rid`. Implements plan.md
-INT-2/INT-3 for the Next.js position. Not yet published to npm; consumed via `file:`
-dependencies from sibling checkouts.
+INT-2/INT-3 for the Next.js position.
+
+```sh
+npm install @camada/next
+```
+
+Requires Node 20 or later.
 
 ## Install
 
