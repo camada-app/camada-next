@@ -6,6 +6,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { NextRequest, type NextFetchEvent } from 'next/server';
 import { camada } from '../src/middleware';
 import { configure, getEngine } from '../src/engine';
+import { middlewareMark } from '../src/event';
 import { fakeAnalyst, fakeEvent, ENV, BLOCKED_IP, type FakeAnalyst } from './harness';
 
 afterEach(() => configure());   // reset the singleton, stop queue timers
@@ -79,6 +80,8 @@ describe('request capture', () => {
     expect(rid).toMatch(/^[0-9a-f-]{36}$/);
     // NextResponse.next({request}) encodes the forwarded request headers onto the response:
     expect(res?.headers.get('x-middleware-request-x-camada-rid')).toBe(rid);
+    // …with the proof withCamada() reads to know this request's event already shipped
+    expect(res?.headers.get('x-middleware-request-x-camada-mw')).toBe(await middlewareMark(ENV.CAMADA_KEY, rid!));
     await ev.settled();
     const e = (a.events.flat() as Array<Record<string, unknown>>)[0];
     expect(e.rid).toBe(rid);

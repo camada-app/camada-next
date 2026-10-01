@@ -13,18 +13,18 @@ import { NextResponse } from 'next/server';
 import { resolveClientIp, logRateLimited, guardedAsync } from '@camada/core';
 import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } from './engine';
 import { isChallengeRoute, challengePassed, serveChallenge } from './challenge';
-import { buildEvent, cookieValue, SESSION_COOKIE } from './event';
+import { buildEvent, cookieValue, middlewareMark, MW_HEADER, SESSION_COOKIE } from './event';
 
 export interface CamadaMiddlewareOptions {
   // Reserved. The engine is configured via CAMADA_* environment variables.
 }
 
-/** Next accepts a promise here; only the challenge branch returns one (it awaits WebCrypto). */
+/** Next accepts a promise here; the capture and challenge branches return one (they await WebCrypto). */
 export type MiddlewareResult = Response | undefined | Promise<Response | undefined>;
 
-/** The ordinary path: ship one pre-response event, stamp the rid, mint the session cookie.
- *  `warnRule` is the id of the `warn` rule that let this request through, if one did (§D3). */
-function capture(engine: Engine, req: NextRequest, path: string, ip: string | null, existingSid: string | null, warnRule: string | null, waitUntil?: (p: Promise<unknown>) => void): Response {
+/** The ordinary path: ship one pre-response event, stamp the rid (and its proof for withCamada()),
+ *  mint the session cookie. `warnRule` is the id of the `warn` rule that let this request through, if one did (§D3). */
+async function capture(engine: Engine, req: NextRequest, path: string, ip: string | null, existingSid: string | null, warnRule: string | null, waitUntil?: (p: Promise<unknown>) => void): Promise<Response> {
   const rid = crypto.randomUUID();
   const sid = existingSid ?? crypto.randomUUID();
   const cfg = engine.snap.config;
@@ -39,6 +39,7 @@ function capture(engine: Engine, req: NextRequest, path: string, ip: string | nu
 
   const headers = new Headers(req.headers);
   headers.set('x-camada-rid', rid);
+  headers.set(MW_HEADER, await middlewareMark(engine.env.secret, rid));   // WebCrypto: the one await on this path
   const res = NextResponse.next({ request: { headers } });
   res.headers.set('x-rid', rid);
   if (!existingSid) {
@@ -111,7 +112,7 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
         ), undefined);
       }
 
-      return capture(engine, req, path, ip, existingSid, warnRule, waitUntil);
+      return guardedAsync(() => capture(engine, req, path, ip, existingSid, warnRule, waitUntil), undefined);
     } catch (err) {
       logRateLimited(err);   // fail open: the app proceeds as if camada were not installed
       return undefined;

@@ -2,9 +2,11 @@
 //   middleware.ts / proxy.ts:                 export default camada();
 //   app/api/camada/[...camada]/route.ts:      export const { GET, POST } = camadaRoute();
 //   app/layout.tsx <head>:                    <CamadaBeacon/>
-// Plus track() for app-context outcomes from server actions / route handlers.
+// Plus track() for app-context outcomes from server actions / route handlers, and withCamada(handler)
+// for a route handler whose event should carry the real status and dur.
 export { camada, type CamadaMiddlewareOptions, type MiddlewareResult } from './middleware';
 export { camadaRoute } from './route';
 export { challengeGate } from './challenge';
 export { CamadaBeacon, type CamadaBeaconProps } from './beacon';
 export { track } from './track';
+export { withCamada } from './with-camada';
