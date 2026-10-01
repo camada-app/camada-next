@@ -68,6 +68,8 @@ import { withCamada } from '@camada/next';
 export const GET = withCamada(async (req) => Response.json(await load()));
 ```
 
+The response carries `x-rid` and the `_sfp` session cookie, as the middleware's does.
+
 ```ts
 // proxy.ts: leave wrapped routes out of the matcher, so each request is recorded once
 export const config = { matcher: ['/((?!_next/|favicon.ico|api/data$).*)'] };
