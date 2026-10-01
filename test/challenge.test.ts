@@ -10,6 +10,7 @@ import { camada } from '../src/middleware';
 import { camadaRoute } from '../src/route';
 import { challengeGate } from '../src/challenge';
 import { configure } from '../src/engine';
+import { middlewareMark } from '../src/event';
 import { fakeAnalyst, fakeEvent, ENV, BLOCKED_IP, CHALLENGED_IP, ALLOWED_IP, type FakeAnalyst } from './harness';
 
 afterEach(() => configure());
@@ -233,14 +234,20 @@ describe('challengeGate()', () => {
     void handler;
   });
 
-  it('ships one event per request: silent when the middleware already reported it', async () => {
+  it('ships one event per request: silent when the middleware already reported it, not for a client-sent rid', async () => {
     const { a } = await primed();
-    // x-camada-rid is what the middleware stamps on the request it forwards.
-    const gate = await challengeGate(new Request('https://app.example/challenge-me', {
-      headers: { ...HTML, 'x-forwarded-for': '8.8.8.8', 'x-camada-rid': 'already-captured' },
+    // x-camada-rid and its x-camada-mw proof are what the middleware stamps on the request it forwards.
+    const url = 'https://app.example/challenge-me';
+    const mark = await middlewareMark(ENV.CAMADA_KEY, new Request(url, { headers: { 'x-forwarded-for': '8.8.8.8' } }), 'already-captured');
+    const gate = await challengeGate(new Request(url, {
+      headers: { ...HTML, 'x-forwarded-for': '8.8.8.8', 'x-camada-rid': 'already-captured', 'x-camada-mw': mark },
     }));
     expect(gate!.status).toBe(403);
     expect(events(a).filter((e) => e.blk === 'challenge')).toHaveLength(0);
+    // a rid the client made up proves nothing: the gate reports its own challenge
+    const forged = await challengeGate(new Request(url, { headers: { ...HTML, 'x-forwarded-for': '8.8.8.8', 'x-camada-rid': 'forged' } }));
+    expect(forged!.status).toBe(403);
+    expect(events(a).filter((e) => e.blk === 'challenge')).toHaveLength(1);
   });
 
   it('ships the challenge row itself when the middleware did not cover the route', async () => {

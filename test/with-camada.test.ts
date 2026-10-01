@@ -2,8 +2,10 @@
 // enforces on every request whatever headers it carries, and skips only its event when the
 // middleware's mark proves the middleware already shipped this very request (no double count).
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { NextRequest } from 'next/server';
 import { withCamada } from '../src/with-camada';
+import { track } from '../src/track';
 import { camada } from '../src/middleware';
 import { middlewareMark, MW_WINDOW_MS } from '../src/event';
 import { configure } from '../src/engine';
@@ -18,6 +20,15 @@ vi.mock('next/server', async (importOriginal) => ({
     afterImpl(task);
   },
 }));
+
+// next/headers for track(): the request headers the route was called with.
+let reqHeaders = new Headers();
+vi.mock('next/headers', () => ({
+  headers: async () => reqHeaders,
+  cookies: async () => ({ get: () => undefined }),
+}));
+// Next puts AsyncLocalStorage on globalThis in both runtimes; vitest does not.
+(globalThis as { AsyncLocalStorage?: unknown }).AsyncLocalStorage = AsyncLocalStorage;
 
 const settle = (ms = 25) => new Promise((r) => setTimeout(r, ms));
 const env: Record<string, string> = { ...ENV, CAMADA_TRUSTED_PROXY: 'hops:1' };
@@ -86,6 +97,24 @@ describe('withCamada', () => {
     }
     await settle();
     expect(evs(a)).toEqual([0, 1, 2].map(() => expect.objectContaining({ p: '/api/data', st: 200 })));
+  });
+
+  it("track() inside a wrapped route joins on the wrapper's rid, never a client-sent x-camada-rid", async () => {
+    const a = await primed();
+    const POST = withCamada(async (req: Request) => { reqHeaders = req.headers; await track('login_failed'); return new Response('no', { status: 401 }); });
+    await (await POST(new Request('https://app.example/api/login', { method: 'POST', headers: { 'x-camada-rid': 'forged' } }))).text();
+    await settle();
+    const wire = evs(a).find((e) => e.p === '/api/login')!;
+    const et = evs(a).find((e) => e.et === 'login_failed')!;
+    expect(et.rid).not.toBe('forged');
+    expect(et.rid).toBe(wire.rid);
+    expect(et.sid).toBe(wire.sid);   // the session the wrapper just minted
+    // the middleware matched too: its stamped, proven rid is the request's, and track() keeps it
+    a.events.length = 0;
+    const signed = await marked('https://app.example/api/login', { method: 'POST' });
+    await (await POST(signed)).text();
+    await settle();
+    expect(evs(a).find((e) => e.et === 'login_failed')!.rid).toBe(signed.headers.get('x-camada-rid'));
   });
 
   it('never lets a mark skip enforcement: a blocked client with a valid mark is still blocked', async () => {
