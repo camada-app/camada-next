@@ -6,7 +6,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { NextRequest, type NextFetchEvent } from 'next/server';
 import { camada } from '../src/middleware';
 import { configure, getEngine } from '../src/engine';
-import { middlewareMark } from '../src/event';
+import { middlewareMarkValid } from '../src/event';
 import { fakeAnalyst, fakeEvent, ENV, BLOCKED_IP, type FakeAnalyst } from './harness';
 
 afterEach(() => configure());   // reset the singleton, stop queue timers
@@ -80,8 +80,12 @@ describe('request capture', () => {
     expect(rid).toMatch(/^[0-9a-f-]{36}$/);
     // NextResponse.next({request}) encodes the forwarded request headers onto the response:
     expect(res?.headers.get('x-middleware-request-x-camada-rid')).toBe(rid);
-    // …with the proof withCamada() reads to know this request's event already shipped
-    expect(res?.headers.get('x-middleware-request-x-camada-mw')).toBe(await middlewareMark(ENV.CAMADA_KEY, rid!));
+    // …with the proof withCamada() reads to know this request's event already shipped, bound to this request line
+    const mark = res?.headers.get('x-middleware-request-x-camada-mw');
+    expect(mark).toMatch(/^\d{13}\.[0-9a-f]{64}$/);
+    const forwarded = (url: string) => new Request(url, { headers: { 'x-camada-rid': rid!, 'x-camada-mw': mark! } });
+    expect(await middlewareMarkValid(ENV.CAMADA_KEY, forwarded('https://app.example/pricing?ref=x'))).toBe(true);
+    expect(await middlewareMarkValid(ENV.CAMADA_KEY, forwarded('https://app.example/pricing?ref=y'))).toBe(false);
     await ev.settled();
     const e = (a.events.flat() as Array<Record<string, unknown>>)[0];
     expect(e.rid).toBe(rid);
@@ -179,5 +183,42 @@ describe('session cookie (_sfp, same as the collector and @camada/node)', () => 
     const sent = a.events.flat()[0] as Record<string, unknown>;
     expect(sent.sid).toBe('known-sid');
     expect(sent.ns).toBe(0);
+  });
+});
+
+describe('client-sent x-camada-mw', () => {
+  const FORGED = `${Date.now()}.${'f'.repeat(64)}`;
+  /** The names NextResponse.next({ request }) forwards; undefined when the request goes on untouched. */
+  const forwardedNames = (res: Response | undefined) => res?.headers.get('x-middleware-override-headers')?.split(',');
+
+  it('is replaced on the capture path, and dropped when the mark cannot be computed', async () => {
+    const a = fakeAnalyst();
+    const handler = await primed(a);
+    const res = await handler(req('/', { 'x-camada-mw': FORGED }), asEvent(fakeEvent()));
+    expect(res?.headers.get('x-middleware-request-x-camada-mw')).toMatch(/^\d{13}\.[0-9a-f]{64}$/);
+    expect(res?.headers.get('x-middleware-request-x-camada-mw')).not.toBe(FORGED);
+
+    const own = Object.getOwnPropertyDescriptor(crypto, 'subtle');
+    Object.defineProperty(crypto, 'subtle', { value: undefined, configurable: true });   // a runtime without WebCrypto
+    try {
+      const bare = await handler(req('/', { 'x-camada-mw': FORGED }), asEvent(fakeEvent()));
+      expect(bare?.headers.get('x-rid')).toBeTruthy();
+      expect(forwardedNames(bare)).toContain('x-camada-rid');
+      expect(forwardedNames(bare)).not.toContain('x-camada-mw');
+    } finally {
+      if (own) Object.defineProperty(crypto, 'subtle', own); else delete (crypto as { subtle?: unknown }).subtle;
+    }
+  });
+
+  it('is stripped when camada is disabled or unconfigured', async () => {
+    const off = await mw(fakeAnalyst(), { CAMADA_DISABLED: '1' })(req('/', { 'x-camada-mw': FORGED }), asEvent(fakeEvent()));
+    expect(forwardedNames(off)).toBeDefined();
+    expect(forwardedNames(off)).not.toContain('x-camada-mw');
+    configure({ env: {} });
+    const bare = await camada()(req('/', { 'x-camada-mw': FORGED }), asEvent(fakeEvent()));
+    expect(forwardedNames(bare)).toBeDefined();
+    expect(forwardedNames(bare)).not.toContain('x-camada-mw');
+    // nothing to strip: Next continues untouched, as before
+    expect(await camada()(req('/'), asEvent(fakeEvent()))).toBeUndefined();
   });
 });
