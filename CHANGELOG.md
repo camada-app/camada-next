@@ -19,12 +19,14 @@
   block, challenge, the `_sfp` session) and ships one event with the real status and a `dur`
   from the request start: to the last byte for a `text/event-stream` body, and to the moment the
   handler returned (time to first byte) for anything else. A thrown `redirect()` or `notFound()`
-  reports the status Next answers with. Leave wrapped routes out of the middleware matcher. If the
+  reports the status Next answers with, and the response carries `x-rid`. Leave wrapped routes out of the middleware matcher. If the
   middleware matches anyway, its signed `x-camada-mw` mark spares the second event and cookie;
   enforcement always runs. See the README's threat model.
 
 ### Fixed
 
+- Path rules match the canonical path (through `@camada/core` 0.5.0). A percent-encoded,
+  upper-cased or trailing-slash spelling of a blocked path used to slip past the block.
 - `track()` inside a `withCamada` route uses the wrapper's request id and session and ignores a
   client-sent `x-camada-rid`. The middleware drops client-sent `x-camada-rid` and `x-camada-mw`
   headers on every path it forwards.
