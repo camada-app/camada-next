@@ -177,7 +177,7 @@ describe('withCamada', () => {
     expect(drained).toBe(false);   // the flush is still in flight: the function must stay up
     open();
     await done;
-    expect(evs(a)).toEqual([expect.objectContaining({ p: '/api/data', st: 200 })]);
+    expect(evs(a).filter((e) => e.p === '/api/data')).toEqual([expect.objectContaining({ p: '/api/data', st: 200 })]);   // primed()'s /__prime event also flushes through the gate
   });
 
   it('falls back to the request context waitUntil where after() is unavailable', async () => {
