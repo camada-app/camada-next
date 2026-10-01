@@ -9,6 +9,7 @@
 // stays importable everywhere; calling track() outside a request scope is a no-op.
 import { hashUserId, logRateLimited, resolveClientIp, TAP_NEXT } from '@camada/core';
 import { getEngine, isDisabled, trustedProxy } from './engine';
+import { requestWaitUntil } from './wait-until';
 
 const SESSION_COOKIE = '_sfp';
 
@@ -30,7 +31,7 @@ export async function track(event: string, data?: { user?: string }): Promise<vo
       ip: resolveClientIp(null, h.get('x-forwarded-for'), trustedProxy(engine)),
       ts: Date.now(),
     });
-    void engine.queue.flush();   // a serverless runtime may freeze right after the response; don't wait for the interval
+    void engine.queue.flush(requestWaitUntil());   // a serverless runtime may freeze right after the response: hold it open for the flush
   } catch (err) {
     logRateLimited(err);   // outside a request scope, unconfigured, or a camada bug: swallow
   }

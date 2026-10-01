@@ -10,7 +10,7 @@
 // 'next/server', which is itself edge-safe.
 import type { NextFetchEvent, NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { resolveClientIp, logRateLimited, guardedAsync } from '@camada/core';
+import { resolveClientIp, logRateLimited, guarded, guardedAsync } from '@camada/core';
 import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } from './engine';
 import { isChallengeRoute, challengePassed, serveChallenge } from './challenge';
 import { buildEvent, cookieValue, middlewareMark, MW_HEADER, SESSION_COOKIE } from './event';
@@ -40,7 +40,9 @@ async function capture(engine: Engine, req: NextRequest, path: string, ip: strin
   const headers = new Headers(req.headers);
   headers.set('x-camada-rid', rid);
   // WebCrypto, the one await on this path; without it the request still goes through, just unproven (withCamada then ships too).
-  const mark = await middlewareMark(engine.env.secret, rid).catch(() => null);
+  // The headers are a copy of the client's: drop any mark it sent before stamping ours.
+  headers.delete(MW_HEADER);
+  const mark = await middlewareMark(engine.env.secret, req, rid).catch(() => null);
   if (mark) headers.set(MW_HEADER, mark);
   const res = NextResponse.next({ request: { headers } });
   res.headers.set('x-rid', rid);
@@ -51,16 +53,26 @@ async function capture(engine: Engine, req: NextRequest, path: string, ip: strin
   return res;
 }
 
+/** Where camada lets a request through without capturing it: forward it without any x-camada-mw the client sent, so the
+ *  only mark a route handler ever sees is one this middleware made. Undefined (Next continues untouched) when there is none. */
+function passThrough(req: Request): Response | undefined {
+  if (!req.headers.has(MW_HEADER)) return undefined;
+  const headers = new Headers(req.headers);
+  headers.delete(MW_HEADER);
+  return NextResponse.next({ request: { headers } });
+}
+
 /**
  * `export default camada();` from middleware.ts (Next ≤15) / proxy.ts (Next 16).
- * Returns undefined (Next continues) whenever camada is disabled, unconfigured, or broken.
+ * Returns undefined (Next continues) whenever camada is disabled, unconfigured, or broken; a client-sent
+ * x-camada-mw is stripped on every path that forwards the request.
  */
 export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, event: NextFetchEvent) => MiddlewareResult {
   return function camadaMiddleware(req: NextRequest, event: NextFetchEvent): MiddlewareResult {
     try {
-      if (isDisabled()) return undefined;
+      if (isDisabled()) return passThrough(req);
       const engine = getEngine();
-      if (!engine) return undefined;
+      if (!engine) return passThrough(req);
       const waitUntil = event?.waitUntil ? (p: Promise<unknown>) => event.waitUntil(p) : undefined;
       engine.snap.ensureFresh(waitUntil);
 
@@ -111,13 +123,13 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
           (await challengePassed(engine, req, ip))
             ? capture(engine, req, path, ip, existingSid, warnRule, waitUntil)
             : serveChallenge(engine, req, ip, path + new URL(req.url).search, waitUntil)
-        ), undefined);
+        ), passThrough(req));
       }
 
-      return guardedAsync(() => capture(engine, req, path, ip, existingSid, warnRule, waitUntil), undefined);
+      return guardedAsync(() => capture(engine, req, path, ip, existingSid, warnRule, waitUntil), passThrough(req));
     } catch (err) {
       logRateLimited(err);   // fail open: the app proceeds as if camada were not installed
-      return undefined;
+      return guarded(() => passThrough(req), undefined);
     }
   };
 }

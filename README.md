@@ -70,16 +70,42 @@ export const GET = withCamada(async (req) => Response.json(await load()));
 
 ```ts
 // proxy.ts: leave wrapped routes out of the matcher, so each request is recorded once
-export const config = { matcher: ['/((?!_next/|favicon.ico|api/data).*)'] };
+export const config = { matcher: ['/((?!_next/|favicon.ico|api/data$).*)'] };
 ```
 
+End each excluded route with `$`. Without it the exclusion is a prefix match: `api/data` also
+takes `/api/database`, `/api/data-export` and `/api/data/anything` out of the middleware, and
+a route left out of the matcher is protected only by its own `withCamada()`. If it isn't
+wrapped, it gets no blocks, no challenges and no events. To exclude a wrapped route and its
+sub-routes, use `api/data(?:/|$)`, and wrap all of them.
+
 The wrapper does what the middleware does (verdict, block, challenge, the `_sfp` session) and
-ships one event with the real status and `dur`: request start to the last byte of the body, so
-a streamed response is timed in full. A thrown `redirect()` or `notFound()` reports the status
-Next answers with. If the middleware also matched the request, it has already shipped; the
-wrapper sees the signed `x-camada-mw` proof it stamps and steps aside rather than count the
-request twice (it logs a rate-limited hint, and that request has no `dur`). A client cannot
-forge the proof: it is an HMAC of the rid under your key.
+ships one event with the real status and `dur`: request start to the response, and to the last
+byte for a streamed `text/event-stream` body. A thrown `redirect()` or `notFound()` reports the status
+Next answers with. The event flushes once the body has gone out. On a serverless host the
+wrapper holds the function open for it with Next's `after()` (Next 15.1+), or with the request
+context's `waitUntil` on older versions. `track()` does the same.
+
+If the middleware also matched the request, it has already shipped an event, and the wrapper
+skips its own (it logs a rate-limited hint, and that request has no `dur`).
+
+**Threat model.** Every request header can come from the client. A route left out of the
+matcher never sees the middleware, and Next has no server-only channel from the middleware to
+a route handler (on Vercel they run in different processes). So:
+
+- The wrapper enforces on every request. Verdict, block and challenge never depend on a header.
+- The one thing a header decides is whether to skip the second event. The middleware stamps
+  `x-camada-mw` on the request it forwards: a timestamp and an HMAC, under your server-only
+  `CAMADA_KEY`, of that timestamp, the method, the path and query, the rid and
+  `X-Forwarded-For`. The wrapper accepts it for 30 seconds and compares in constant time.
+- The middleware deletes any `x-camada-mw` the client sent before it forwards a request.
+- A forged mark doesn't verify. A leaked one (the rid is in the `x-rid` response header, and
+  the mark rides the forwarded request headers into anything that logs or proxies them)
+  doesn't verify on another path, query or method, from another client chain, or after 30 s.
+  Within those bounds, the most a replay can do is hide its own event. It still gets blocked
+  or challenged, and that ships an event.
+- A middleware rewrite, or a proxy that changes `X-Forwarded-For` between the middleware and
+  the function, makes the mark fail. That costs a second event, never enforcement.
 
 Pages and server components have no handler to wrap and keep the middleware's pre-response
 event. A wrapped route has no `x-camada-rid`, so `track()` inside it joins on the session only,
@@ -169,4 +195,5 @@ The middleware/proxy matcher decides where enforcement runs. The beacon route ha
 (`/api/camada/*`) enforce the blocklist themselves, so blocked clients can never fetch the
 beacon even when your matcher excludes `/api/` — but every OTHER route your matcher excludes
 is invisible to camada: no blocking, no events. Keep the matcher as broad as the example's
-(`/((?!_next/|favicon.ico).*)`) unless you have a specific reason not to.
+(`/((?!_next/|favicon.ico).*)`) unless you have a specific reason not to. Anchor every exclusion
+with `$` (see `withCamada()` above): an unanchored lookahead entry is a prefix match.
