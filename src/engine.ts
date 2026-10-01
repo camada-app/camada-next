@@ -66,7 +66,7 @@ export function configure(opts: ConfigureOptions = {}): void {
   engine = undefined;
 }
 
-function envSource(): Record<string, string | undefined> {
+export function envSource(): Record<string, string | undefined> {
   return overrides.env ?? (typeof process !== 'undefined' && process.env ? process.env : {});
 }
 

@@ -56,6 +56,35 @@ rate-limited `console.error` says why.
   `next/headers` and renders `<script src="/api/camada/b.js?r=<rid>" async>` so the beacon
   POST joins the server-side wire event.
 
+## Status and duration: `withCamada()`
+
+The middleware runs before your route, so its event ships pre-response with `st` and `dur`
+null, and that traffic shows on the IP timeline as points without a duration. To report both
+for a route handler, wrap it:
+
+```ts
+// app/api/data/route.ts
+import { withCamada } from '@camada/next';
+export const GET = withCamada(async (req) => Response.json(await load()));
+```
+
+```ts
+// proxy.ts: leave wrapped routes out of the matcher, so each request is recorded once
+export const config = { matcher: ['/((?!_next/|favicon.ico|api/data).*)'] };
+```
+
+The wrapper does what the middleware does (verdict, block, challenge, the `_sfp` session) and
+ships one event with the real status and `dur`: request start to the last byte of the body, so
+a streamed response is timed in full. A thrown `redirect()` or `notFound()` reports the status
+Next answers with. If the middleware also matched the request, it has already shipped; the
+wrapper sees the signed `x-camada-mw` proof it stamps and steps aside rather than count the
+request twice (it logs a rate-limited hint, and that request has no `dur`). A client cannot
+forge the proof: it is an HMAC of the rid under your key.
+
+Pages and server components have no handler to wrap and keep the middleware's pre-response
+event. A wrapped route has no `x-camada-rid`, so `track()` inside it joins on the session only,
+and the Vercel `ja4` header is not sent from this position.
+
 ## Custom rules
 
 Your Rules page holds one ordered list per project, and the middleware walks it before the
@@ -110,8 +139,9 @@ a real cold → blocked flow against the golden snapshot fixture.
 - **Header order is alphabetical.** The edge runtime sorts request headers, so `hord` is
   sorted at this tap (still shipped; the scorer's capability mask knows `sdk-next` lacks the
   raw-wire-order signal `@camada/node` has).
-- **Events ship pre-response** (`st: null`, like the edge collector's tap) — middleware
-  cannot see the final status. Blocked requests ship with `st: 403` and `blk: <reason>`
+- **Middleware events ship pre-response** (`st` and `dur` null, like the edge collector's
+  tap): middleware cannot see the final status. Wrap a route handler in `withCamada()` to
+  report both (above). Blocked requests ship with `st: 403` and `blk: <reason>`
   (ip4|ip6|path|rule); the beacon route handlers ship the same event when they deny. Every
   snapshot poll and event batch carries `x-camada-sdk: @camada/next/<version>`.
 - **Serverless cold start fails open**: the first request on a cold instance sees no
