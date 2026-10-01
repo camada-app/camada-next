@@ -161,11 +161,14 @@ describe('withCamada', () => {
       await ev.settled();
       const names = res?.headers.get('x-middleware-override-headers')?.split(',') ?? [];
       const forwarded = Object.fromEntries(names.map((n) => [n, res!.headers.get(`x-middleware-request-${n}`) ?? '']));
-      return route(new Request(url, { headers: names.length ? forwarded : headers }));
+      const out = await route(new Request(url, { headers: names.length ? forwarded : headers }));
+      return { mwRid: res?.headers.get('x-rid'), out };
     };
-    await (await throughMiddleware('https://app.example/api/data', { 'x-forwarded-for': '8.8.8.8' })).text();
+    const { mwRid, out } = await throughMiddleware('https://app.example/api/data', { 'x-forwarded-for': '8.8.8.8' });
+    await out.text();
     await settle();
-    expect(evs(a)).toEqual([expect.objectContaining({ p: '/api/data', st: null })]);   // the middleware's
+    expect(evs(a)).toEqual([expect.objectContaining({ p: '/api/data', st: null, rid: mwRid })]);   // the middleware's, and its x-rid
+    expect(out.headers.get('x-rid')).toBeNull();   // Next merges the middleware's x-rid onto the route's response: no second one
     a.events.length = 0;
     // a client mark is stripped by the middleware, and this one forges nothing on an unmatched route either
     await (await route(new Request('https://app.example/api/data', { headers: { 'x-forwarded-for': '8.8.8.8' } }))).text();
@@ -223,6 +226,37 @@ describe('withCamada', () => {
     } finally {
       delete (globalThis as Record<symbol, unknown>)[sym];
     }
+  });
+
+  it("stamps x-rid with the rid of the row it ships, on a mutable response and on an immutable one alike", async () => {
+    const a = await primed();
+    const plain = await withCamada(() => new Response('ok', { headers: { 'x-app': '1' } }))(new Request('https://app.example/api/data'));
+    expect(await plain.text()).toBe('ok');
+    expect(plain.headers.get('x-app')).toBe('1');
+    // Response.redirect() and a fetch() result have immutable headers: a copy carries them, status and body unchanged
+    const redirect = await withCamada(() => Response.redirect('https://app.example/login', 307))(new Request('https://app.example/api/me'));
+    expect(redirect.status).toBe(307);
+    expect(redirect.headers.get('location')).toBe('https://app.example/login');
+    expect(redirect.headers.get('set-cookie')).toMatch(/^_sfp=/);
+    await settle();
+    const rid = (p: string) => evs(a).find((e) => e.p === p)!.rid;
+    expect(plain.headers.get('x-rid')).toBe(rid('/api/data'));
+    expect(redirect.headers.get('x-rid')).toBe(rid('/api/me'));
+    // a streamed body keeps it through core's re-wrap
+    const sse = await withCamada(() => new Response(slowBody(), { headers: SSE }))(new Request('https://app.example/api/stream'));
+    await sse.text();
+    await settle();
+    expect(sse.headers.get('x-rid')).toBe(rid('/api/stream'));
+  });
+
+  it('leaves x-rid to the middleware on a request it shipped, and never touches a 101', async () => {
+    await primed();
+    const signed = await withCamada(() => new Response('ok'))(await marked('https://app.example/api/data'));
+    expect(signed.headers.get('x-rid')).toBeNull();   // the middleware's response carries its own, that row's rid
+    // undici refuses to construct a 101; a websocket upgrade's response looks like this to the wrapper
+    const upgrade = { status: 101, headers: new Headers({ upgrade: 'websocket' }), body: null } as unknown as Response;
+    const res = await withCamada(() => upgrade)(new Request('https://app.example/ws'));
+    expect(res.headers.get('x-rid')).toBeNull();
   });
 
   it('is inert without a key', async () => {

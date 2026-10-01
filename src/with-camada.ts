@@ -67,6 +67,23 @@ export function withCamada<R extends Request, A extends unknown[]>(
       cam.after(req, r.vars, thrownStatus(err));
       throw err;
     }
+    res = withRid(res, r.vars.rid);
     return cam.finish(req, r.vars, r.vars.sessionCookie ? withSetCookie(res, r.vars.sessionCookie) : res);
   };
+}
+
+/** x-rid, the rid of this request's row, the same header the middleware stamps. Set in place, or on a copy when the
+ *  headers are immutable (`Response.redirect()`, a `fetch()` result), as withSetCookie does: same status and body.
+ *  A 101 upgrade is left alone. Not on a request the middleware shipped: its own x-rid, that row's, reaches the client. */
+function withRid(res: Response, rid: string): Response {
+  if (res.status === 101) return res;
+  try {
+    res.headers.set('x-rid', rid);
+    return res;
+  } catch {
+    // ponytail: core's copyResponse is not exported; its Deno and @hono/node-server cases never reach a Next route.
+    const out = new Response(res.body, res);
+    out.headers.set('x-rid', rid);
+    return out;
+  }
 }
