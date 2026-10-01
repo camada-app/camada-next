@@ -9,7 +9,7 @@ import {
   resolveClientIp, CHALLENGE_COOKIE, type AsyncChallengeKit,
 } from '@camada/core';
 import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } from './engine';
-import { buildEvent, cookieValue, SESSION_COOKIE } from './event';
+import { buildEvent, cookieValue, middlewareMarkValid, SESSION_COOKIE } from './event';
 
 /** Where the page posts. The catch-all route handler must be mounted at /api/camada/[...camada]
  *  (the documented install) — the served page hard-codes this action. */
@@ -94,8 +94,9 @@ export async function verifyChallenge(engine: Engine, req: Request): Promise<Res
 /** For a route that wants to gate itself (the example's /challenge-me): the challenge Response,
  *  or null when this client already holds a valid `_cch` and the route should render normally.
  *
- *  One request, one event. The middleware stamps `x-camada-rid` on the request it forwards, so
- *  its presence means the middleware already shipped this request's row; the gate then serves
+ *  One request, one event. The middleware stamps `x-camada-rid` and its `x-camada-mw` proof on
+ *  the request it forwards, so a mark that verifies means the middleware already shipped this
+ *  request's row (a client-sent rid alone proves nothing); the gate then serves
  *  the page WITHOUT a second row, which would double-count the request at the analyst. Exclude
  *  the gated route from the middleware matcher and the gate ships the `blk: "challenge"` row
  *  itself — that is the configuration to use when you want the challenge counted. */
@@ -106,5 +107,6 @@ export async function challengeGate(req: Request): Promise<Response | null> {
   const ip = clientIp(engine, req);
   if (!ip || await challengePassed(engine, req, ip)) return null;   // unidentifiable client: fail open
   const url = new URL(req.url);
-  return serveChallenge(engine, req, ip, url.pathname + url.search, undefined, !req.headers.has('x-camada-rid'));
+  const shipped = await middlewareMarkValid(engine.env.secret, req).catch(() => false);
+  return serveChallenge(engine, req, ip, url.pathname + url.search, undefined, !shipped);
 }

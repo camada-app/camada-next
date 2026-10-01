@@ -53,19 +53,21 @@ async function capture(engine: Engine, req: NextRequest, path: string, ip: strin
   return res;
 }
 
-/** Where camada lets a request through without capturing it: forward it without any x-camada-mw the client sent, so the
- *  only mark a route handler ever sees is one this middleware made. Undefined (Next continues untouched) when there is none. */
+/** Where camada lets a request through without capturing it: forward it without any x-camada-mw or x-camada-rid the
+ *  client sent, so the only mark and rid a route handler ever sees are ones this middleware made. Undefined (Next
+ *  continues untouched) when there is neither. */
 function passThrough(req: Request): Response | undefined {
-  if (!req.headers.has(MW_HEADER)) return undefined;
+  if (!req.headers.has(MW_HEADER) && !req.headers.has('x-camada-rid')) return undefined;
   const headers = new Headers(req.headers);
   headers.delete(MW_HEADER);
+  headers.delete('x-camada-rid');
   return NextResponse.next({ request: { headers } });
 }
 
 /**
  * `export default camada();` from middleware.ts (Next ≤15) / proxy.ts (Next 16).
  * Returns undefined (Next continues) whenever camada is disabled, unconfigured, or broken; a client-sent
- * x-camada-mw is stripped on every path that forwards the request.
+ * x-camada-mw or x-camada-rid is stripped on every path that forwards the request.
  */
 export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, event: NextFetchEvent) => MiddlewareResult {
   return function camadaMiddleware(req: NextRequest, event: NextFetchEvent): MiddlewareResult {
