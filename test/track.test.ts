@@ -53,6 +53,21 @@ describe('track', () => {
     expect(a.events).toHaveLength(0);
   });
 
+  it('hands its flush to the request context waitUntil, so a serverless function stays up for it', async () => {
+    const a = setup();
+    const held: Promise<unknown>[] = [];
+    const sym = Symbol.for('@vercel/request-context');
+    (globalThis as Record<symbol, unknown>)[sym] = { get: () => ({ waitUntil: (p: Promise<unknown>) => held.push(p) }) };
+    try {
+      await track('signup');
+      expect(held).toHaveLength(1);
+      await held[0];
+      expect(a.events.flat()).toEqual([expect.objectContaining({ et: 'signup' })]);
+    } finally {
+      delete (globalThis as Record<symbol, unknown>)[sym];
+    }
+  });
+
   it('never throws unconfigured or with ingest down', async () => {
     const a = setup();
     a.ingestDown = true;
