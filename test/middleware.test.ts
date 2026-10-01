@@ -218,6 +218,10 @@ describe('client-sent x-camada-mw', () => {
     const bare = await camada()(req('/', { 'x-camada-mw': FORGED }), asEvent(fakeEvent()));
     expect(forwardedNames(bare)).toBeDefined();
     expect(forwardedNames(bare)).not.toContain('x-camada-mw');
+    // a client-sent rid goes the same way: a route handler only ever sees one the middleware minted
+    const rid = await camada()(req('/', { 'x-camada-rid': 'forged' }), asEvent(fakeEvent()));
+    expect(forwardedNames(rid)).toBeDefined();
+    expect(forwardedNames(rid)).not.toContain('x-camada-rid');
     // nothing to strip: Next continues untouched, as before
     expect(await camada()(req('/'), asEvent(fakeEvent()))).toBeUndefined();
   });

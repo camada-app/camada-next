@@ -44,7 +44,7 @@ rate-limited `console.error` says why.
 - **`camada()`** — the middleware: refreshes the blocklist snapshot off-path
   (`event.waitUntil`), enforces it inline (403 with
   `x-block-reason`/`x-block-version`/`x-block-rule`; blocked requests always ship,
-  unsampled), stamps `x-camada-rid` onto the forwarded request
+  unsampled), stamps `x-camada-rid` onto the forwarded request (dropping any the client sent)
   and `x-rid` onto the response, and ships the wire event fire-and-forget with tap
   `sdk-next`. On Vercel, `x-vercel-ja4-digest` — a real TLS fingerprint — rides along as
   `ja4`.
@@ -108,8 +108,9 @@ a route handler (on Vercel they run in different processes). So:
   the function, makes the mark fail. That costs a second event, never enforcement.
 
 Pages and server components have no handler to wrap and keep the middleware's pre-response
-event. A wrapped route has no `x-camada-rid`, so `track()` inside it joins on the session only,
-and the Vercel `ja4` header is not sent from this position.
+event. `track()` inside a wrapped route joins on the wrapper's own rid and session, never on an
+`x-camada-rid` the client sent (nothing strips it outside the matcher). The Vercel `ja4` header
+is not sent from this position.
 
 ## Custom rules
 

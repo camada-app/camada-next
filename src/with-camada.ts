@@ -14,6 +14,8 @@
 //     session cookie, nothing else. A copied mark fails on another path, query, method or client
 //     and after the window; within it, it can at most hide a replay's event, never pass a block.
 //   - The middleware strips any x-camada-mw the client sent before forwarding.
+//   - track() inside the handler takes this wrapper's rid and session (withTrackScope), never a
+//     client-sent x-camada-rid; only a request the middleware already shipped keeps its stamped one.
 import iife from '@camada/browser/iife-string';
 import { logRateLimited, TAP_NEXT } from '@camada/core';
 import { createFetchCamada, withSetCookie } from '@camada/core/fetch';
@@ -21,6 +23,7 @@ import { envSource, getEngine } from './engine';
 import { VERIFY_PATH } from './challenge';
 import { middlewareMarkValid } from './event';
 import { requestWaitUntil } from './wait-until';
+import { withTrackScope } from './track';
 import { SDK_ID } from './version';
 
 const cam = createFetchCamada({ tap: TAP_NEXT, sdk: SDK_ID, iife }, { challengePath: VERIFY_PATH });   // lazy mode: edge and serverless
@@ -59,7 +62,7 @@ export function withCamada<R extends Request, A extends unknown[]>(
     }
     let res: Response;
     try {
-      res = await handler(req, ...rest);
+      res = await withTrackScope({ rid: r.vars.rid, sid: r.vars.sid }, () => handler(req, ...rest));
     } catch (err) {
       cam.after(req, r.vars, thrownStatus(err));
       throw err;
