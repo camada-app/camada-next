@@ -70,7 +70,7 @@ describe('edge-safety proof', () => {
     const promises: Promise<unknown>[] = [];
     const ev = { waitUntil: (p: Promise<unknown>) => promises.push(p) };
 
-    const cold = handler(makeReq('https://app.example/', { 'x-forwarded-for': BLOCKED_IP }), ev);
+    const cold = await handler(makeReq('https://app.example/', { 'x-forwarded-for': BLOCKED_IP }), ev);   // the pass-through awaits WebCrypto for the x-camada-mw proof
     expect(cold?.status).toBe(200);                    // cold start fails open
     expect(promises.length).toBeGreaterThan(0);        // snapshot load handed to waitUntil
     await Promise.all(promises.splice(0));

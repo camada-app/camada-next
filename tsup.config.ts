@@ -7,6 +7,7 @@ export default defineConfig({
   clean: true,
   external: [
     '@camada/core',
+    '@camada/core/fetch',
     '@camada/browser',
     '@camada/browser/iife-string',
     '@camada/react',

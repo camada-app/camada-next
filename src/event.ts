@@ -1,6 +1,6 @@
 // One wire-event builder for every @camada/next entry (middleware + beacon route). Web APIs
 // only: this sits in the middleware's edge-safe import graph.
-import { buildWireEvent, TAP_NEXT, type WireEvent } from '@camada/core';
+import { buildWireEvent, hmacHex, TAP_NEXT, type WireEvent } from '@camada/core';
 
 export function buildEvent(req: Request, path: string, ip: string | null, rid: string, sid: string | null, newSession: boolean): WireEvent {
   const url = new URL(req.url);
@@ -19,6 +19,10 @@ export function buildEvent(req: Request, path: string, ip: string | null, rid: s
     { tap: TAP_NEXT, rid, sid, newSession, ja4: req.headers.get('x-vercel-ja4-digest') },
   );
 }
+
+/** Stamped by the middleware next to x-camada-rid on the request it forwards: proof, for withCamada(), that this request's event already shipped. */
+export const MW_HEADER = 'x-camada-mw';
+export const middlewareMark = (secret: string, rid: string): Promise<string> => hmacHex(secret, `mw:${rid}`);
 
 export const SESSION_COOKIE = '_sfp';   // the same session cookie as the edge collector and @camada/node: sid/ns comparable across taps
 
