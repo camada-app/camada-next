@@ -226,3 +226,25 @@ describe('client-sent x-camada-mw', () => {
     expect(await camada()(req('/'), asEvent(fakeEvent()))).toBeUndefined();
   });
 });
+
+describe('camada’s own beacon routes', () => {
+  it('GET b.js and POST fp carry no x-rid and ship no row; other paths keep both', async () => {
+    const a = fakeAnalyst();
+    const handler = await primed(a);
+    const ev = fakeEvent();
+    const script = await handler(req('/api/camada/b.js'), asEvent(ev));
+    const fp = await handler(new NextRequest('https://app.example/api/camada/fp', { method: 'POST' }), asEvent(ev));
+    const page = await handler(req('/api/camada/other'), asEvent(ev));
+    await ev.settled();
+    expect(script?.headers.get('x-rid') ?? null).toBeNull();
+    expect(fp?.headers.get('x-rid') ?? null).toBeNull();
+    expect(page?.headers.get('x-rid')).toBeTruthy();
+    expect((a.events.flat() as Array<Record<string, unknown>>).map((e) => e.p)).toEqual(['/api/camada/other']);
+  });
+
+  it('a blocked client still gets 403 on the beacon route', async () => {
+    const a = fakeAnalyst();
+    const handler = await primed(a, { CAMADA_TRUSTED_PROXY: 'hops:1' });
+    expect((await handler(req('/api/camada/b.js', { 'x-forwarded-for': BLOCKED_IP }), asEvent(fakeEvent())))?.status).toBe(403);
+  });
+});
