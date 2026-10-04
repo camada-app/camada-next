@@ -13,6 +13,11 @@
 - The middleware's events still ship before the route answers, with `st` and `dur` null. Use
   `withCamada` where you want both.
 
+### Fixed
+
+- The middleware no longer stamps `x-rid` on, or ships a row for, camada's own beacon routes (`GET /api/camada/b.js`,
+  `POST /api/camada/fp`), as the other SDKs' beacon routes carry neither. Enforcement still applies.
+
 ### Added
 
 - `withCamada(handler)` wraps a route handler. It enforces as the middleware does (verdict,

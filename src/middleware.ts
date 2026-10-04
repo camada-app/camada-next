@@ -15,6 +15,11 @@ import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } fr
 import { isChallengeRoute, challengePassed, serveChallenge } from './challenge';
 import { buildEvent, cookieValue, middlewareMark, MW_HEADER, SESSION_COOKIE } from './event';
 
+/** camadaRoute()'s beacon endpoints (mounted at /api/camada/[...camada]). Camada's own, like core's scriptPath/fpPath:
+ *  after enforcement they are neither captured nor stamped with x-rid. */
+const isBeaconRoute = (method: string, path: string): boolean =>
+  (method === 'GET' && path === '/api/camada/b.js') || (method === 'POST' && path === '/api/camada/fp');
+
 export interface CamadaMiddlewareOptions {
   // Reserved. The engine is configured via CAMADA_* environment variables.
 }
@@ -127,6 +132,8 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
             : serveChallenge(engine, req, ip, path + new URL(req.url).search, waitUntil)
         ), passThrough(req));
       }
+
+      if (isBeaconRoute(req.method, path)) return passThrough(req);   // no row, no x-rid: the route handler answers it
 
       return guardedAsync(() => capture(engine, req, path, ip, existingSid, warnRule, waitUntil), passThrough(req));
     } catch (err) {
