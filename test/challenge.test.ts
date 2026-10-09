@@ -128,7 +128,7 @@ describe('serving the challenge', () => {
   });
 });
 
-describe('verifying the challenge', () => {
+describe('verifying the challenge', { timeout: 30_000 }, () => {   // each test solves a 16-bit proof of work; ~3.5 s on a fast laptop, over 5 s on a CI runner
   it('sets _cch, redirects back, and ships st 200 + ch 1', async () => {
     const { a, handler } = await primed();
     const res = await pass(handler);
