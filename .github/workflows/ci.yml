@@ -38,3 +38,5 @@ jobs:
         working-directory: camada-next
       - run: npm test
         working-directory: camada-next
+      - run: npx -y @arethetypeswrong/cli@0.18.5 --pack .
+        working-directory: camada-next
