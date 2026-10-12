@@ -170,6 +170,13 @@ a real cold → blocked flow against the golden snapshot fixture.
   `null` and IP rules simply don't enforce — a spoofed `X-Forwarded-For` can never reach the
   blocklist. When `VERCEL` is set and no override is given, the SDK defaults to
   `{mode:'vercel'}` (Vercel overwrites XFF, so its rightmost entry is trustworthy).
+- **No socket peer, so the X-Forwarded-For walk trusts your host's edge.** The SDKs that see
+  the socket (`@camada/node`, `@camada/bun`, `@camada/hono` off Workers) walk a `cidrs` config
+  only when the peer itself is a trusted proxy or loopback, and otherwise answer with the peer.
+  This adapter has no peer to check, so it keeps the plain walk: under `CAMADA_TRUSTED_PROXY` it
+  reads `X-Forwarded-For` as if the request came through your edge (Vercel, a load balancer, a
+  CDN). That holds when the edge is the only way in. If the origin is reachable directly, a
+  client can send its own `X-Forwarded-For`, so lock the origin to the edge.
 - **Header order is alphabetical.** The edge runtime sorts request headers, so `hord` is
   sorted at this tap (still shipped; the scorer's capability mask knows `sdk-next` lacks the
   raw-wire-order signal `@camada/node` has).
