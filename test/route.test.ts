@@ -157,6 +157,18 @@ describe('route-level enforcement (matcher-independent)', () => {
     }
   });
 
+  it('a blocked client gets its 403 on fp before a byte of the body is pulled (R4-13)', async () => {
+    const a = fakeAnalyst();
+    configure({ env: { ...ENV, CAMADA_TRUSTED_PROXY: 'hops:1' }, fetchImpl: a.fetchImpl });
+    const { GET, POST } = camadaRoute();
+    await GET(new Request('https://app.example/api/camada/b.js'));   // prime the lazy snapshot
+    await settle();
+    const s = streamSource();
+    const res = await POST(new Request(url('fp'), { method: 'POST', body: s.stream, headers: { 'x-forwarded-for': BLOCKED_IP }, duplex: 'half' } as RequestInit));
+    expect(res.status).toBe(403);
+    expect(s.pulled).toBe(0);
+  });
+
   it('identifies itself as @camada/next/<package version> on polls and batches', async () => {
     const a = fakeAnalyst();
     configure({ env: ENV, fetchImpl: a.fetchImpl });
