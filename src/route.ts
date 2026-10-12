@@ -7,13 +7,12 @@
 // Works on BOTH runtimes (edge and node): Web APIs only, no node: imports. Unconfigured or
 // disabled: GET 404s, POST answers 204 and drops — inert, never an error.
 import iife from '@camada/browser/iife-string';
-import { guardedAsync, resolveClientIp, TAP_NEXT } from '@camada/core';
+import { guardedAsync, resolveClientIp, readBodyCapped, TAP_NEXT } from '@camada/core';
 import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } from './engine';
 import { verifyChallenge } from './challenge';
 import { buildEvent, cookieValue, SESSION_COOKIE } from './event';
 
 const FP_MAX = 32 * 1024;   // matches the server's /fp cap: never accept what ingest will 413
-const encoder = new TextEncoder();
 
 const notFound = () => new Response(null, { status: 404 });
 const noContent = () => new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
@@ -77,14 +76,15 @@ export function camadaRoute(): {
         return verifyChallenge(engine, req);
       }
       if (lastSegment(req) !== 'fp') return notFound();
-      const body = await req.text();
-      if (encoder.encode(body).byteLength > FP_MAX) return new Response(null, { status: 413 });
       const engine = activeEngine();
       if (engine) {
         engine.snap.ensureFresh();
+        // Decide before reading: a blocked client or a beacon the tenant turned off pulls no body.
         const deny = blocked(engine, req);
         if (deny) return deny;
         if (beaconOff(engine)) return notFound();
+        const body = await readBodyCapped(req, FP_MAX);   // streamed: a chunked body cannot buffer past the cap
+        if (body === null) return new Response(null, { status: 413 });
         const ip = resolveClientIp(null, req.headers.get('x-forwarded-for'), trustedProxy(engine));
         let parsed: unknown;
         try { parsed = JSON.parse(body); } catch { return noContent(); }   // not a beacon: drop it, never ship junk
