@@ -11,6 +11,7 @@ import { camadaRoute } from '../src/route';
 import { challengeGate } from '../src/challenge';
 import { configure } from '../src/engine';
 import { middlewareMark } from '../src/event';
+import { streamSource, CHUNK } from './stream-source';
 import { fakeAnalyst, fakeEvent, ENV, BLOCKED_IP, CHALLENGED_IP, ALLOWED_IP, type FakeAnalyst } from './harness';
 
 afterEach(() => configure());
@@ -201,6 +202,22 @@ describe('verifying the challenge', { timeout: 30_000 }, () => {   // each test 
     await primed();
     const res = await verify(`nonce=x&solution=1&to=%2F&pad=${'a'.repeat(5000)}`);
     expect(res.status).toBe(413);
+  });
+
+  it('cuts off a length-less body at 4 KB + one chunk and cancels it (camada-all-4u4i)', async () => {
+    await primed();
+    const s = streamSource();
+    const res = await camadaRoute().POST(new Request('https://app.example/api/camada/challenge', {
+      method: 'POST', headers: { 'x-forwarded-for': CHALLENGED_IP, 'content-type': 'application/x-www-form-urlencoded' }, body: s.stream, duplex: 'half',
+    } as RequestInit));
+    expect(res.status).toBe(413);
+    expect(s.cancelled).toBe(true);
+    expect(s.pulled).toBeLessThanOrEqual(4 * 1024 + CHUNK);
+  });
+
+  it('counts bytes, not UTF-16 units', async () => {
+    await primed();
+    expect((await verify(`nonce=${'é'.repeat(2100)}`)).status).toBe(413);   // 2100 units, 4200 bytes
   });
 
   it('fails open instead of 500ing when the challenge path throws', async () => {
