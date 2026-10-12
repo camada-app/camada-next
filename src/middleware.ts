@@ -107,6 +107,7 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
         engine.queue.flush(waitUntil);
         const headers: Record<string, string> = {
           'content-type': 'text/plain',
+          'cache-control': 'no-store',
           'x-block-reason': String(v.reason ?? ''),
           'x-block-version': v.version ?? '',
         };

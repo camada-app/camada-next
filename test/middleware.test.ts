@@ -42,6 +42,7 @@ describe('inline blocking', () => {
     expect(res?.status).toBe(403);
     expect(res?.headers.get('x-block-reason')).toBe('ip4');
     expect(res?.headers.get('x-block-version')).toBeTruthy();
+    expect(res?.headers.get('cache-control')).toBe('no-store');   // camada-all-8lp6
     await ev.settled();
     const evs = a.events.flat() as Array<Record<string, unknown>>;
     expect(evs).toHaveLength(1);

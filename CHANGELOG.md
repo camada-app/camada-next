@@ -6,6 +6,7 @@ Needs the `@camada/core` that exports `readBodyCapped`.
 
 ### Fixed
 
+- Block responses (path, ip, asn, country, tls and rule blocks, the `Forbidden` 403) now send `cache-control: no-store`, like the challenge answers, so a shared cache cannot serve one visitor's block to others. (camada-all-8lp6)
 - The challenge page (middleware, `challengeGate()`, and the page re-issued after a wrong answer)
   sends its own `Content-Security-Policy` (core's `challengePageCsp()`: only its inline solver
   and style, by hash), as the other adapters' pages do. (camada-all-mwpo)

@@ -30,7 +30,7 @@ function blocked(engine: Engine, req: Request): Response | null {
   if (v.rule) ev.rl = v.rule;
   engine.queue.push(ev);
   void engine.queue.flush();
-  const headers: Record<string, string> = { 'x-block-reason': String(v.reason ?? ''), 'x-block-version': v.version ?? '' };
+  const headers: Record<string, string> = { 'cache-control': 'no-store', 'x-block-reason': String(v.reason ?? ''), 'x-block-version': v.version ?? '' };
   if (v.rule) headers['x-block-rule'] = v.rule;
   return new Response('Forbidden', { status: 403, headers });
 }
