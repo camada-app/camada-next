@@ -76,14 +76,15 @@ export function camadaRoute(): {
         return verifyChallenge(engine, req);
       }
       if (lastSegment(req) !== 'fp') return notFound();
-      const body = await readBodyCapped(req, FP_MAX);   // streamed: a chunked body cannot buffer past the cap
-      if (body === null) return new Response(null, { status: 413 });
       const engine = activeEngine();
       if (engine) {
         engine.snap.ensureFresh();
+        // Decide before reading: a blocked client or a beacon the tenant turned off pulls no body.
         const deny = blocked(engine, req);
         if (deny) return deny;
         if (beaconOff(engine)) return notFound();
+        const body = await readBodyCapped(req, FP_MAX);   // streamed: a chunked body cannot buffer past the cap
+        if (body === null) return new Response(null, { status: 413 });
         const ip = resolveClientIp(null, req.headers.get('x-forwarded-for'), trustedProxy(engine));
         let parsed: unknown;
         try { parsed = JSON.parse(body); } catch { return noContent(); }   // not a beacon: drop it, never ship junk
