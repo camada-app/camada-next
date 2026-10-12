@@ -169,7 +169,9 @@ a real cold → blocked flow against the golden snapshot fixture.
   no `CAMADA_TRUSTED_PROXY` (and no server-delivered tenant config) the IP resolves to
   `null` and IP rules simply don't enforce — a spoofed `X-Forwarded-For` can never reach the
   blocklist. When `VERCEL` is set and no override is given, the SDK defaults to
-  `{mode:'vercel'}` (Vercel overwrites XFF, so its rightmost entry is trustworthy).
+  `{mode:'vercel'}` (Vercel overwrites XFF, so its rightmost entry is trustworthy). Under
+  `VERCEL` that default also wins over the trusted-proxy setting in your dashboard: only
+  `CAMADA_TRUSTED_PROXY` overrides it.
 - **No socket peer, so the X-Forwarded-For walk trusts your host's edge.** The SDKs that see
   the socket (`@camada/node`, `@camada/bun`, `@camada/hono` off Workers) walk a `cidrs` config
   only when the peer itself is a trusted proxy or loopback, and otherwise answer with the peer.
