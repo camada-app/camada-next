@@ -78,6 +78,26 @@ describe('serving the challenge', () => {
     expect(events(a).at(-1)).toMatchObject({ st: 403, blk: 'challenge', tap: 'sdk-next' });
   });
 
+  it('sends the page with its own CSP, matching its inline script and style (camada-all-mwpo)', async () => {
+    const sha = async (t: string) => `'sha256-${btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)))))}'`;
+    const check = async (res: Response) => {
+      const html = await res.text();
+      expect(res.headers.get('content-security-policy')).toBe(
+        `default-src 'none'; script-src ${await sha(/<script>([\s\S]*?)<\/script>/.exec(html)![1])}; ` +
+        `style-src ${await sha(/<style>([\s\S]*?)<\/style>/.exec(html)![1])}; base-uri 'none'; frame-ancestors 'self'`);
+    };
+    const { handler } = await primed();
+    const page = await handler(req('/cart', { ...HTML, 'x-forwarded-for': CHALLENGED_IP }), asEvent(fakeEvent()));
+    expect(page!.status).toBe(403);
+    await check(page!);
+    const again = await verify('nonce=x&solution=1&to=%2Fcart');   // a wrong answer re-issues the page
+    expect(again.status).toBe(403);
+    await check(again);
+    const gated = await challengeGate(req('/challenge-me', { ...HTML, 'x-forwarded-for': CHALLENGED_IP }));
+    expect(gated?.status).toBe(403);
+    await check(gated!);
+  });
+
   it('answers 403 JSON for a non-HTML request', async () => {
     const { handler } = await primed();
     const res = await handler(req('/checkout', { accept: 'application/json', 'x-forwarded-for': CHALLENGED_IP }), asEvent(fakeEvent()));

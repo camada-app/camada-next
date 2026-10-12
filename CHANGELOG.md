@@ -6,6 +6,9 @@ Needs the `@camada/core` that exports `readBodyCapped`.
 
 ### Fixed
 
+- The challenge page (middleware, `challengeGate()`, and the page re-issued after a wrong answer)
+  sends its own `Content-Security-Policy` (core's `challengePageCsp()`: only its inline solver
+  and style, by hash), as the other adapters' pages do. (camada-all-mwpo)
 - `camadaRoute()`'s `fp` relay and challenge verify read the body through core's `readBodyCapped`:
   a chunked (length-less) POST is cut off at the 32 KB / 4 KB cap and its stream cancelled,
   instead of being read whole first. The client sees `413`, or a connection reset where the Node

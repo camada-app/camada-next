@@ -5,7 +5,7 @@
 // The page is served by the middleware (or by challengeGate() from a route the app gates
 // itself) and posts a form to POST /api/camada/challenge, handled by camadaRoute().
 import {
-  createChallengeAsync, challengePage, challengeCookie, safeReturnTo, wantsHtml, parseFormBody,
+  createChallengeAsync, challengePage, challengePageCsp, challengeCookie, safeReturnTo, wantsHtml, parseFormBody,
   resolveClientIp, readBodyCapped, CHALLENGE_COOKIE, type AsyncChallengeKit,
 } from '@camada/core';
 import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } from './engine';
@@ -55,7 +55,8 @@ export async function serveChallenge(engine: Engine, req: Request, ip: string, t
   const html = challengePage({ nonce: await kitFor(engine).nonce(ip, Date.now()), action: VERIFY_PATH, to: safeReturnTo(target) });
   return new Response(html, {
     status: 403,
-    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-camada-challenge': '1' },
+    // the page's own policy (its inline solver and style by hash), never one the app sets (camada-all-mwpo)
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-camada-challenge': '1', 'content-security-policy': challengePageCsp() },
   });
 }
 
@@ -73,7 +74,9 @@ export async function verifyChallenge(engine: Engine, req: Request): Promise<Res
   const now = Date.now();
   if (!ip || !(await kit.verify(ip, now, form.nonce, form.solution))) {
     const html = ip ? challengePage({ nonce: await kit.nonce(ip, now), action: url.pathname, to }) : 'Forbidden';
-    return new Response(html, { status: 403, headers: { 'content-type': ip ? 'text/html; charset=utf-8' : 'text/plain', 'cache-control': 'no-store' } });
+    const headers: Record<string, string> = { 'content-type': ip ? 'text/html; charset=utf-8' : 'text/plain', 'cache-control': 'no-store' };
+    if (ip) headers['content-security-policy'] = challengePageCsp();
+    return new Response(html, { status: 403, headers });
   }
   const ev = buildEvent(req, url.pathname, ip, crypto.randomUUID(), cookieValue(req.headers.get('cookie') || '', SESSION_COOKIE), false);
   ev.st = 200;
