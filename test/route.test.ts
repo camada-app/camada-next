@@ -142,6 +142,7 @@ describe('route-level enforcement (matcher-independent)', () => {
     const g = await GET(new Request('https://app.example/api/camada/b.js', { headers: { 'x-forwarded-for': BLOCKED_IP } }));
     expect(g.status).toBe(403);
     expect(g.headers.get('x-block-reason')).toBe('ip4');
+    expect(g.headers.get('cache-control')).toBe('no-store');   // camada-all-8lp6
     const p = await POST(new Request('https://app.example/api/camada/fp', { method: 'POST', body: '{}', headers: { 'x-forwarded-for': BLOCKED_IP, cookie: '_sfp=s1' } }));
     expect(p.status).toBe(403);
     await settle();
