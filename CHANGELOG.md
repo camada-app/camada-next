@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+Needs the `@camada/core` that exports `readBodyCapped`.
+
+### Fixed
+
+- `camadaRoute()`'s `fp` relay and challenge verify read the body through core's `readBodyCapped`:
+  a chunked (length-less) POST is cut off at the 32 KB / 4 KB cap and its stream cancelled,
+  instead of being read whole first. The client sees `413`, or a connection reset where the Node
+  server stops reading the upload. `fp` had no cap check before the read at all, and the
+  challenge cap now counts bytes, not UTF-16 units (camada-all-4u4i).
+- `fp` reads its body only after the block and beacon-off checks, so a blocked client gets its
+  `403` with no body pulled, and an inert route reads none.
+
+### Docs
+
+- README: without a socket peer this adapter keeps the `X-Forwarded-For` walk and so trusts
+  the host's edge; lock the origin to it.
+
 ## 0.3.1 (2026-10-09; follows 0.3.0)
 
 Needs `@camada/core` 0.5.1.

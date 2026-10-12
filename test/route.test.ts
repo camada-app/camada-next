@@ -6,6 +6,7 @@ import { camadaRoute } from '../src/route';
 import { configure } from '../src/engine';
 import { fakeAnalyst, ENV, BLOCKED_IP } from './harness';
 import { name, version } from '../package.json';
+import { streamSource, CHUNK } from './stream-source';
 
 afterEach(() => configure());
 
@@ -97,6 +98,27 @@ describe('POST (beacon relay)', () => {
     expect(a.beacons).toHaveLength(0);
   });
 
+  it('cuts off a length-less body at 32 KB + one chunk and cancels it (camada-all-4u4i)', async () => {
+    const a = fakeAnalyst();
+    configure({ env: ENV, fetchImpl: a.fetchImpl });
+    const s = streamSource();
+    const res = await camadaRoute().POST(new Request(url('fp'), { method: 'POST', body: s.stream, duplex: 'half' } as RequestInit));
+    expect(res.status).toBe(413);
+    expect(s.cancelled).toBe(true);
+    expect(s.pulled).toBeLessThanOrEqual(32 * 1024 + CHUNK);
+    await settle();
+    expect(a.beacons).toHaveLength(0);
+  });
+
+  it('rejects a declared Content-Length over the cap without reading the body', async () => {
+    const a = fakeAnalyst();
+    configure({ env: ENV, fetchImpl: a.fetchImpl });
+    const s = streamSource();
+    const res = await camadaRoute().POST(new Request(url('fp'), { method: 'POST', body: s.stream, headers: { 'content-length': String(64 * 1024) }, duplex: 'half' } as RequestInit));
+    expect(res.status).toBe(413);
+    expect(s.pulled).toBe(0);
+  });
+
   it('404s on unknown segments; 204s inert when unconfigured', async () => {
     const a = fakeAnalyst();
     configure({ env: ENV, fetchImpl: a.fetchImpl });
@@ -133,6 +155,18 @@ describe('route-level enforcement (matcher-independent)', () => {
       expect(e.ip).toBe(BLOCKED_IP);
       expect(e.p).toMatch(/^\/api\/camada\//);
     }
+  });
+
+  it('a blocked client gets its 403 on fp before a byte of the body is pulled (R4-13)', async () => {
+    const a = fakeAnalyst();
+    configure({ env: { ...ENV, CAMADA_TRUSTED_PROXY: 'hops:1' }, fetchImpl: a.fetchImpl });
+    const { GET, POST } = camadaRoute();
+    await GET(new Request('https://app.example/api/camada/b.js'));   // prime the lazy snapshot
+    await settle();
+    const s = streamSource();
+    const res = await POST(new Request(url('fp'), { method: 'POST', body: s.stream, headers: { 'x-forwarded-for': BLOCKED_IP }, duplex: 'half' } as RequestInit));
+    expect(res.status).toBe(403);
+    expect(s.pulled).toBe(0);
   });
 
   it('identifies itself as @camada/next/<package version> on polls and batches', async () => {

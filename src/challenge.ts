@@ -6,7 +6,7 @@
 // itself) and posts a form to POST /api/camada/challenge, handled by camadaRoute().
 import {
   createChallengeAsync, challengePage, challengeCookie, safeReturnTo, wantsHtml, parseFormBody,
-  resolveClientIp, CHALLENGE_COOKIE, type AsyncChallengeKit,
+  resolveClientIp, readBodyCapped, CHALLENGE_COOKIE, type AsyncChallengeKit,
 } from '@camada/core';
 import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } from './engine';
 import { buildEvent, cookieValue, middlewareMarkValid, SESSION_COOKIE } from './event';
@@ -66,9 +66,8 @@ export async function verifyChallenge(engine: Engine, req: Request): Promise<Res
   const kit = kitFor(engine);
   // camada answers this path before the app runs, so it must not become a place to post
   // hundreds of megabytes at an unauthenticated endpoint.
-  if (Number(req.headers.get('content-length')) > BODY_MAX) return new Response(null, { status: 413 });
-  const body = await req.text();
-  if (body.length > BODY_MAX) return new Response(null, { status: 413 });
+  const body = await readBodyCapped(req, BODY_MAX);
+  if (body === null) return new Response(null, { status: 413 });
   const form = parseFormBody(body);
   const to = safeReturnTo(form.to);
   const now = Date.now();
