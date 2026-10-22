@@ -106,6 +106,7 @@ describe('serving the challenge', () => {
     expect(res!.status).toBe(200);
     expect(res!.headers.get('x-camada-challenge')).toBe('1');
     expect(res!.headers.get('x-rid')).toBeTruthy();
+    expect(res!.headers.get('cache-control')).toBe('no-store');
     expect(events(a).at(-1)).toMatchObject({ chs: 1, tap: 'sdk-next' });
     expect(events(a).at(-1)!.blk).toBeUndefined();
   });
@@ -120,10 +121,10 @@ describe('serving the challenge', () => {
     expect(events(a).filter((e) => e.chs === 1)).toHaveLength(1);
   });
 
-  it('challenges an App Router navigation (RSC: 1) with a 403', async () => {
+  it('passes an App Router navigation (RSC: 1, as a direct NextRequest) signalled; Next hides the header in a real app', async () => {
     const { handler } = await primed();
     const res = await handler(req('/cart', { rsc: '1', accept: 'text/x-component', 'x-forwarded-for': CHALLENGED_IP }), asEvent(fakeEvent()));
-    expect(res!.status).toBe(403);
+    expect(res!.status).toBe(200);
     expect(res!.headers.get('x-camada-challenge')).toBe('1');
   });
 
@@ -347,9 +348,20 @@ describe('challengeGate()', () => {
     const json = { accept: 'application/json', 'x-forwarded-for': '8.8.8.8' };
     expect(await challengeGate(new Request(url, { headers: json }))).toBeNull();
     expect(events(a).filter((e) => e.chs === 1)).toHaveLength(1);
-    const mark = await middlewareMark(ENV.CAMADA_KEY, new Request(url, { headers: { 'x-forwarded-for': '8.8.8.8' } }), 'already-captured');
+    const base = new Request(url, { headers: { 'x-forwarded-for': '8.8.8.8' } });
+    // the middleware signalled: it shipped the chs row, so the gate ships nothing
+    const mark = await middlewareMark(ENV.CAMADA_KEY, base, 'already-captured', Date.now(), true);
     expect(await challengeGate(new Request(url, { headers: { ...json, 'x-camada-rid': 'already-captured', 'x-camada-mw': mark } }))).toBeNull();
     expect(events(a).filter((e) => e.chs === 1)).toHaveLength(1);
+    // the middleware ran but did not signal (non-challenge verdict, or sampled out): the gate ships its own row
+    const seen = await middlewareMark(ENV.CAMADA_KEY, base, 'seen-only');
+    expect(await challengeGate(new Request(url, { headers: { ...json, 'x-camada-rid': 'seen-only', 'x-camada-mw': seen } }))).toBeNull();
+    expect(events(a).filter((e) => e.chs === 1)).toHaveLength(2);
+    // a client cannot upgrade a seen mark: the signalled bit is inside the HMAC
+    const ts = seen.split('.')[0];
+    const forged = `${ts}.${seen.split('.')[1].replace(/.$/, (c) => (c === '0' ? '1' : '0'))}`;
+    expect(await challengeGate(new Request(url, { headers: { ...json, 'x-camada-rid': 'seen-only', 'x-camada-mw': forged } }))).toBeNull();
+    expect(events(a).filter((e) => e.chs === 1)).toHaveLength(3);
   });
 
   it('ships the challenge row itself when the middleware did not cover the route', async () => {

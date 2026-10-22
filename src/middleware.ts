@@ -49,11 +49,14 @@ async function capture(engine: Engine, req: NextRequest, path: string, ip: strin
   // WebCrypto, the one await on this path; without it the request still goes through, just unproven (withCamada then ships too).
   // The headers are a copy of the client's: drop any mark it sent before stamping ours.
   headers.delete(MW_HEADER);
-  const mark = await middlewareMark(engine.env.secret, req, rid).catch(() => null);
+  const mark = await middlewareMark(engine.env.secret, req, rid, Date.now(), signalled).catch(() => null);
   if (mark) headers.set(MW_HEADER, mark);
   const res = NextResponse.next({ request: { headers } });
   res.headers.set('x-rid', rid);
-  if (signalled) res.headers.set('x-camada-challenge', '1');
+  if (signalled) {
+    res.headers.set('x-camada-challenge', '1');
+    res.headers.set('cache-control', 'no-store');   // the signal is per client: a shared cache must not hand it to others
+  }
   if (!existingSid) {
     const secure = new URL(req.url).protocol === 'https:' ? '; Secure' : '';
     res.headers.append('set-cookie', `${SESSION_COOKIE}=${sid}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax${secure}`);
@@ -129,8 +132,9 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
       // its session cookie and its event, so an hour of `_cch` is not an hour of blindness.
       // guardedAsync covers the whole branch — the synchronous catch below cannot see a
       // rejection from these awaits, and WebCrypto is not guaranteed to exist.
-      // Only a page or a client navigation's data request (App Router `RSC: 1`, Pages Router `x-nextjs-data: 1`; Next turns
-      // a 403 into a document load) is challenged. Any other request passes, signalled: x-camada-challenge: 1 and chs: 1 (82ar).
+      // Only a page or a Pages Router data request (`x-nextjs-data: 1`; Next turns a 403 into a document load) is challenged.
+      // Any other request passes, signalled: x-camada-challenge: 1 and chs: 1 (82ar). That includes App Router soft navigations:
+      // Next strips the RSC header before middleware runs, so they look like any fetch; the next document load meets the page.
       if (v.challenge && ip && challengeEnabled() && !isChallengeRoute(path)) {
         const page = isChallengeable(req);
         // A signalled beacon request falls through to the beacon branch below: camada's own answer carries no signal.
