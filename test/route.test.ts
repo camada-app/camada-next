@@ -92,6 +92,18 @@ describe('POST (beacon relay)', () => {
     expect(row.rts as number).toBeLessThanOrEqual(after);
   });
 
+  it('strips request-row keys a visitor body tries to smuggle, as core\'s relay does (camada-all-vw8f)', async () => {
+    const a = fakeAnalyst();
+    configure({ env: ENV, fetchImpl: a.fetchImpl });
+    await camadaRoute().POST(post('fp', JSON.stringify({ rid: 'abc', tz: 'UTC', tlsx: 'forged', blk: 'x', st: 200 })));
+    await settle();
+    const [row] = a.events.flat() as Array<Record<string, unknown>>;
+    expect(row).toMatchObject({ sig: 1, rid: 'abc', tz: 'UTC' });
+    expect(row).not.toHaveProperty('tlsx');
+    expect(row).not.toHaveProperty('blk');
+    expect(row).not.toHaveProperty('st');
+  });
+
   it('drops an unparseable body instead of shipping it', async () => {
     const a = fakeAnalyst();
     configure({ env: ENV, fetchImpl: a.fetchImpl });
