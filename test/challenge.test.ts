@@ -349,19 +349,15 @@ describe('challengeGate()', () => {
     expect(await challengeGate(new Request(url, { headers: json }))).toBeNull();
     expect(events(a).filter((e) => e.chs === 1)).toHaveLength(1);
     const base = new Request(url, { headers: { 'x-forwarded-for': '8.8.8.8' } });
-    // the middleware signalled: it shipped the chs row, so the gate ships nothing
-    const mark = await middlewareMark(ENV.CAMADA_KEY, base, 'already-captured', Date.now(), true);
+    // a valid mark: the middleware saw the request, so the gate ships nothing
+    const mark = await middlewareMark(ENV.CAMADA_KEY, base, 'already-captured');
     expect(await challengeGate(new Request(url, { headers: { ...json, 'x-camada-rid': 'already-captured', 'x-camada-mw': mark } }))).toBeNull();
     expect(events(a).filter((e) => e.chs === 1)).toHaveLength(1);
-    // the middleware ran but did not signal (non-challenge verdict, or sampled out): the gate ships its own row
-    const seen = await middlewareMark(ENV.CAMADA_KEY, base, 'seen-only');
-    expect(await challengeGate(new Request(url, { headers: { ...json, 'x-camada-rid': 'seen-only', 'x-camada-mw': seen } }))).toBeNull();
+    // a tampered mark counts as no mark: the gate ships one row
+    const ts = mark.split('.')[0];
+    const forged = `${ts}.${mark.split('.')[1].replace(/.$/, (c) => (c === '0' ? '1' : '0'))}`;
+    expect(await challengeGate(new Request(url, { headers: { ...json, 'x-camada-rid': 'already-captured', 'x-camada-mw': forged } }))).toBeNull();
     expect(events(a).filter((e) => e.chs === 1)).toHaveLength(2);
-    // a client cannot upgrade a seen mark: the signalled bit is inside the HMAC
-    const ts = seen.split('.')[0];
-    const forged = `${ts}.${seen.split('.')[1].replace(/.$/, (c) => (c === '0' ? '1' : '0'))}`;
-    expect(await challengeGate(new Request(url, { headers: { ...json, 'x-camada-rid': 'seen-only', 'x-camada-mw': forged } }))).toBeNull();
-    expect(events(a).filter((e) => e.chs === 1)).toHaveLength(3);
   });
 
   it('ships the challenge row itself when the middleware did not cover the route', async () => {
