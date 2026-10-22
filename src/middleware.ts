@@ -15,10 +15,11 @@ import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } fr
 import { isChallengeRoute, challengePassed, serveChallenge, isChallengeable } from './challenge';
 import { buildEvent, cookieValue, middlewareMark, MW_HEADER, SESSION_COOKIE } from './event';
 
-/** camadaRoute()'s beacon endpoints (mounted at /api/camada/[...camada]). Camada's own, like core's scriptPath/fpPath:
- *  after enforcement they are neither captured nor stamped with x-rid. */
 /** Per-client signal: no shared cache may keep the copy. CDNs read their own header ahead of cache-control. */
 const NO_STORE_HEADERS = ['cache-control', 'cdn-cache-control', 'surrogate-control', 'cloudflare-cdn-cache-control', 'vercel-cdn-cache-control', 'netlify-cdn-cache-control'];
+
+/** camadaRoute()'s beacon endpoints (mounted at /api/camada/[...camada]). Camada's own, like core's scriptPath/fpPath:
+ *  after enforcement they are neither captured nor stamped with x-rid. */
 const isBeaconRoute = (method: string, path: string): boolean =>
   (method === 'GET' && path === '/api/camada/b.js') || (method === 'POST' && path === '/api/camada/fp');
 
