@@ -35,7 +35,7 @@ export function challengePassed(engine: Engine, req: Request, ip: string): Promi
   return kitFor(engine).tokenValid(ip, Date.now(), cookieValue(req.headers.get('cookie') || '', CHALLENGE_COOKIE));
 }
 
-/** 403 + the proof-of-work page (HTML navigations) or 403 JSON (everything else), plus the
+/** 403 + the proof-of-work page (HTML navigations) or 403 JSON (an RSC navigation), plus the
  *  `blk: "challenge"` event — a served challenge is reported like a block (contract §D2). */
 export async function serveChallenge(engine: Engine, req: Request, ip: string, target: string, waitUntil?: (p: Promise<unknown>) => void, ship = true): Promise<Response> {
   if (ship) {
@@ -46,6 +46,7 @@ export async function serveChallenge(engine: Engine, req: Request, ip: string, t
     engine.queue.flush(waitUntil);
   }
 
+  // A page gets the proof-of-work page; the only other request served here is an RSC navigation, which Next turns into a document load.
   if (!wantsHtml(req.headers.get('accept'), req.headers.get('sec-fetch-dest'))) {
     return new Response('{"error":"challenge_required"}', {
       status: 403,
@@ -108,6 +109,9 @@ export async function challengeGate(req: Request): Promise<Response | null> {
   if (!engine) return null;
   const ip = clientIp(engine, req);
   if (!ip || await challengePassed(engine, req, ip)) return null;   // unidentifiable client: fail open
+  // A non-HTML request that is not an RSC navigation is not challenged (82ar): the route continues. The middleware already
+  // signalled it (x-camada-challenge, chs: 1); a route outside the matcher gets no header or event from the gate.
+  if (!wantsHtml(req.headers.get('accept'), req.headers.get('sec-fetch-dest')) && req.headers.get('rsc') !== '1') return null;
   const url = new URL(req.url);
   const shipped = await middlewareMarkValid(engine.env.secret, req).catch(() => false);
   return serveChallenge(engine, req, ip, url.pathname + url.search, undefined, !shipped);
