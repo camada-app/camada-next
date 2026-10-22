@@ -35,7 +35,7 @@ export function challengePassed(engine: Engine, req: Request, ip: string): Promi
   return kitFor(engine).tokenValid(ip, Date.now(), cookieValue(req.headers.get('cookie') || '', CHALLENGE_COOKIE));
 }
 
-/** 403 + the proof-of-work page (HTML navigations) or 403 JSON (everything else), plus the
+/** 403 + the proof-of-work page (HTML navigations) or 403 JSON (a Pages Router data request), plus the
  *  `blk: "challenge"` event — a served challenge is reported like a block (contract §D2). */
 export async function serveChallenge(engine: Engine, req: Request, ip: string, target: string, waitUntil?: (p: Promise<unknown>) => void, ship = true): Promise<Response> {
   if (ship) {
@@ -46,6 +46,7 @@ export async function serveChallenge(engine: Engine, req: Request, ip: string, t
     engine.queue.flush(waitUntil);
   }
 
+  // A page gets the proof-of-work page; the only other request served here is a Pages Router data request, which Next turns into a document load.
   if (!wantsHtml(req.headers.get('accept'), req.headers.get('sec-fetch-dest'))) {
     return new Response('{"error":"challenge_required"}', {
       status: 403,
@@ -93,6 +94,13 @@ export async function verifyChallenge(engine: Engine, req: Request): Promise<Res
   });
 }
 
+/** Only a page or a Pages Router data request (`x-nextjs-data: 1`; Next turns its non-ok answer into a hard navigation) is
+ *  challenged. Any other request passes, signalled (82ar). App Router soft navigations are among them: Next strips the RSC
+ *  header (and `_rsc`) before middleware runs, so they cannot be told from a fetch; the next document load meets the page. */
+export function isChallengeable(req: Request): boolean {
+  return wantsHtml(req.headers.get('accept'), req.headers.get('sec-fetch-dest')) || req.headers.get('x-nextjs-data') === '1';
+}
+
 /** For a route that wants to gate itself (the example's /challenge-me): the challenge Response,
  *  or null when this client already holds a valid `_cch` and the route should render normally.
  *
@@ -101,14 +109,30 @@ export async function verifyChallenge(engine: Engine, req: Request): Promise<Res
  *  request's row (a client-sent rid alone proves nothing); the gate then serves
  *  the page WITHOUT a second row, which would double-count the request at the analyst. Exclude
  *  the gated route from the middleware matcher and the gate ships the `blk: "challenge"` row
- *  itself — that is the configuration to use when you want the challenge counted. */
+ *  itself — that is the configuration to use when you want the challenge counted.
+ *
+ *  A request that is not challengeable returns null. The gate ships one `chs: 1` row only when there is no valid
+ *  middleware mark (the middleware did not see the request) and the ip has no valid `_cch`; with a valid mark it ships
+ *  nothing. A null return cannot set headers: the route sets `x-camada-challenge: 1` and `cache-control: no-store`
+ *  itself if it wants the frontend to see the signal. */
 export async function challengeGate(req: Request): Promise<Response | null> {
   if (isDisabled() || !challengeEnabled()) return null;
   const engine = getEngine();
   if (!engine) return null;
+  const challengeable = isChallengeable(req);
   const ip = clientIp(engine, req);
   if (!ip || await challengePassed(engine, req, ip)) return null;   // unidentifiable client: fail open
   const url = new URL(req.url);
   const shipped = await middlewareMarkValid(engine.env.secret, req).catch(() => false);
+  if (!challengeable) {
+    // Not challenged (82ar): the route continues. Unless the middleware saw this request (valid mark), ship its chs: 1 event here.
+    if (!shipped) {
+      const ev = buildEvent(req, url.pathname, ip, crypto.randomUUID(), cookieValue(req.headers.get('cookie') || '', SESSION_COOKIE), false);
+      ev.chs = 1;
+      engine.queue.push(ev);
+      engine.queue.flush();
+    }
+    return null;
+  }
   return serveChallenge(engine, req, ip, url.pathname + url.search, undefined, !shipped);
 }
