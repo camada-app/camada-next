@@ -113,7 +113,8 @@ export function isChallengeable(req: Request): boolean {
  *
  *  A request that is not challengeable returns null. The gate ships one `chs: 1` row only when there is no valid
  *  middleware mark (the middleware did not see the request) and the ip has no valid `_cch`; with a valid mark it ships
- *  nothing. A null return cannot set headers: the route sets `x-camada-challenge: 1` and `cache-control: no-store`
+ *  nothing. A null return cannot set headers: the route sets `x-camada-challenge: 1` and `no-store` on `cache-control`
+ *  and the CDN cache headers (`cdn-cache-control`, `surrogate-control`, `cloudflare-`/`vercel-`/`netlify-cdn-cache-control`)
  *  itself if it wants the frontend to see the signal. */
 export async function challengeGate(req: Request): Promise<Response | null> {
   if (isDisabled() || !challengeEnabled()) return null;
