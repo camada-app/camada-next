@@ -49,7 +49,7 @@ async function capture(engine: Engine, req: NextRequest, path: string, ip: strin
   // WebCrypto, the one await on this path; without it the request still goes through, just unproven (withCamada then ships too).
   // The headers are a copy of the client's: drop any mark it sent before stamping ours.
   headers.delete(MW_HEADER);
-  const mark = await middlewareMark(engine.env.secret, req, rid, Date.now(), signalled).catch(() => null);
+  const mark = await middlewareMark(engine.env.secret, req, rid).catch(() => null);
   if (mark) headers.set(MW_HEADER, mark);
   const res = NextResponse.next({ request: { headers } });
   res.headers.set('x-rid', rid);

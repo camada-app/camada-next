@@ -9,7 +9,7 @@ import {
   resolveClientIp, readBodyCapped, CHALLENGE_COOKIE, type AsyncChallengeKit,
 } from '@camada/core';
 import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } from './engine';
-import { buildEvent, cookieValue, middlewareMarkState, SESSION_COOKIE } from './event';
+import { buildEvent, cookieValue, middlewareMarkValid, SESSION_COOKIE } from './event';
 
 /** Where the page posts. The catch-all route handler must be mounted at /api/camada/[...camada]
  *  (the documented install) — the served page hard-codes this action. */
@@ -105,15 +105,16 @@ export function isChallengeable(req: Request): boolean {
  *  or null when this client already holds a valid `_cch` and the route should render normally.
  *
  *  One request, one event. The middleware stamps `x-camada-rid` and its `x-camada-mw` proof on
- *  the request it forwards, so a mark that verifies means the middleware handled this request and
- *  already shipped its row (a client-sent rid alone proves nothing); the mark also covers whether the middleware signalled, so a
- *  non-challengeable request is only left unreported when the mark says the `chs: 1` row went out. The gate then serves
+ *  the request it forwards, so a mark that verifies means the middleware already shipped this
+ *  request's row (a client-sent rid alone proves nothing); the gate then serves
  *  the page WITHOUT a second row, which would double-count the request at the analyst. Exclude
  *  the gated route from the middleware matcher and the gate ships the `blk: "challenge"` row
  *  itself — that is the configuration to use when you want the challenge counted.
  *
- *  A request that is not challengeable passes (null) and the gate ships its `chs: 1` event unless the middleware did;
- *  a null return cannot set `x-camada-challenge: 1`, so the route's own response should set it if the frontend is to see it. */
+ *  A request that is not challengeable returns null. The gate ships one `chs: 1` row only when there is no valid
+ *  middleware mark (the middleware did not see the request) and the ip has no valid `_cch`; with a valid mark it ships
+ *  nothing. A null return cannot set headers: the route sets `x-camada-challenge: 1` and `cache-control: no-store`
+ *  itself if it wants the frontend to see the signal. */
 export async function challengeGate(req: Request): Promise<Response | null> {
   if (isDisabled() || !challengeEnabled()) return null;
   const engine = getEngine();
@@ -122,10 +123,10 @@ export async function challengeGate(req: Request): Promise<Response | null> {
   const ip = clientIp(engine, req);
   if (!ip || await challengePassed(engine, req, ip)) return null;   // unidentifiable client: fail open
   const url = new URL(req.url);
-  const mark = await middlewareMarkState(engine.env.secret, req).catch(() => 'none' as const);
+  const shipped = await middlewareMarkValid(engine.env.secret, req).catch(() => false);
   if (!challengeable) {
-    // Not challenged (82ar): the route continues. Unless the middleware already shipped this request, ship its chs: 1 event here.
-    if (mark !== 'signalled') {   // only a signalled mark proves the middleware shipped the chs row (it marks every request it captures)
+    // Not challenged (82ar): the route continues. Unless the middleware saw this request (valid mark), ship its chs: 1 event here.
+    if (!shipped) {
       const ev = buildEvent(req, url.pathname, ip, crypto.randomUUID(), cookieValue(req.headers.get('cookie') || '', SESSION_COOKIE), false);
       ev.chs = 1;
       engine.queue.push(ev);
@@ -133,5 +134,5 @@ export async function challengeGate(req: Request): Promise<Response | null> {
     }
     return null;
   }
-  return serveChallenge(engine, req, ip, url.pathname + url.search, undefined, mark === 'none');
+  return serveChallenge(engine, req, ip, url.pathname + url.search, undefined, !shipped);
 }
