@@ -98,7 +98,7 @@ describe('POST (beacon relay)', () => {
     await camadaRoute().POST(post('fp', JSON.stringify({ rid: 'abc', tz: 'UTC', tlsx: 'forged', blk: 'x', st: 200 })));
     await settle();
     const [row] = a.events.flat() as Array<Record<string, unknown>>;
-    expect(row).toMatchObject({ sig: 1, rid: 'abc', tz: 'UTC' });
+    expect(row).toMatchObject({ sig: 1, rid: 'abc', tz: 'UTC', tap: 'sdk-next' });   // the server-stamped fields survive the strip
     expect(row).not.toHaveProperty('tlsx');
     expect(row).not.toHaveProperty('blk');
     expect(row).not.toHaveProperty('st');
