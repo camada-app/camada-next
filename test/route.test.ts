@@ -79,6 +79,19 @@ describe('POST (beacon relay)', () => {
     expect(rows[0]).toMatchObject({ sig: 1, rid: 'abc', tz: 'UTC', ip: '9.9.9.9', tap: 'sdk-next' });
   });
 
+  it('stamps rts with the relay clock, overwriting a body-supplied one (camada-all-10fg)', async () => {
+    const a = fakeAnalyst();
+    configure({ env: ENV, fetchImpl: a.fetchImpl });
+    const before = Date.now();
+    await camadaRoute().POST(post('fp', JSON.stringify({ rid: 'abc', rts: 1 })));
+    const after = Date.now();
+    await settle();
+    const [row] = a.events.flat() as Array<Record<string, unknown>>;
+    expect(Number.isInteger(row.rts)).toBe(true);
+    expect(row.rts as number).toBeGreaterThanOrEqual(before);
+    expect(row.rts as number).toBeLessThanOrEqual(after);
+  });
+
   it('drops an unparseable body instead of shipping it', async () => {
     const a = fakeAnalyst();
     configure({ env: ENV, fetchImpl: a.fetchImpl });
