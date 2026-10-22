@@ -94,6 +94,11 @@ export async function verifyChallenge(engine: Engine, req: Request): Promise<Res
   });
 }
 
+/** Only a page or an App Router client navigation (`RSC: 1`) is challenged; any other request passes, signalled (82ar). */
+export function isChallengeable(req: Request): boolean {
+  return wantsHtml(req.headers.get('accept'), req.headers.get('sec-fetch-dest')) || req.headers.get('rsc') === '1';
+}
+
 /** For a route that wants to gate itself (the example's /challenge-me): the challenge Response,
  *  or null when this client already holds a valid `_cch` and the route should render normally.
  *
@@ -107,11 +112,11 @@ export async function challengeGate(req: Request): Promise<Response | null> {
   if (isDisabled() || !challengeEnabled()) return null;
   const engine = getEngine();
   if (!engine) return null;
-  const ip = clientIp(engine, req);
-  if (!ip || await challengePassed(engine, req, ip)) return null;   // unidentifiable client: fail open
   // A non-HTML request that is not an RSC navigation is not challenged (82ar): the route continues. The middleware already
   // signalled it (x-camada-challenge, chs: 1); a route outside the matcher gets no header or event from the gate.
-  if (!wantsHtml(req.headers.get('accept'), req.headers.get('sec-fetch-dest')) && req.headers.get('rsc') !== '1') return null;
+  if (!isChallengeable(req)) return null;
+  const ip = clientIp(engine, req);
+  if (!ip || await challengePassed(engine, req, ip)) return null;   // unidentifiable client: fail open
   const url = new URL(req.url);
   const shipped = await middlewareMarkValid(engine.env.secret, req).catch(() => false);
   return serveChallenge(engine, req, ip, url.pathname + url.search, undefined, !shipped);
