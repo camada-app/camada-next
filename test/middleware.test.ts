@@ -7,7 +7,7 @@ import { NextRequest, type NextFetchEvent } from 'next/server';
 import { camada } from '../src/middleware';
 import { configure, getEngine } from '../src/engine';
 import { middlewareMarkValid } from '../src/event';
-import { fakeAnalyst, fakeEvent, ENV, BLOCKED_IP, type FakeAnalyst } from './harness';
+import { fakeAnalyst, fakeEvent, ENV, BLOCKED_IP, CHALLENGED_IP, ALLOWED_IP, type FakeAnalyst } from './harness';
 
 afterEach(() => configure());   // reset the singleton, stop queue timers
 
@@ -32,6 +32,21 @@ async function primed(a: FakeAnalyst, env: Record<string, string | undefined> = 
   a.events.length = 0;
   return handler;
 }
+
+describe('signalled pass', () => {
+  it('sets no-store on cache-control and every CDN cache header; an unsignalled pass sets none (camada-all-5pog)', async () => {
+    const a = fakeAnalyst();
+    a.v4 = true;
+    const handler = await primed(a, { CAMADA_TRUSTED_PROXY: 'hops:1' });
+    const go = async (ip: string) => handler(req('/checkout', { accept: 'application/json', 'x-forwarded-for': ip }), asEvent(fakeEvent()));
+    const sig = await go(CHALLENGED_IP);
+    expect(sig?.headers.get('x-camada-challenge')).toBe('1');
+    for (const n of ['cache-control', 'cdn-cache-control', 'surrogate-control', 'cloudflare-cdn-cache-control', 'vercel-cdn-cache-control', 'netlify-cdn-cache-control']) expect(sig?.headers.get(n), n).toBe('no-store');
+    const plain = await go(ALLOWED_IP);
+    expect(plain?.headers.get('x-camada-challenge')).toBeNull();
+    expect(plain?.headers.get('cdn-cache-control')).toBeNull();
+  });
+});
 
 describe('inline blocking', () => {
   it('answers 403 with block headers and ships the event with st 403', async () => {
