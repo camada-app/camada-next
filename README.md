@@ -129,7 +129,7 @@ rule carries one of four actions:
 |---|---|---|
 | `skip` | passes the request | nothing |
 | `block` | `403` before your app | `blk: "rule"`, `rl: "<rule id>"` |
-| `challenge` | serves the proof-of-work page to a page load or App Router navigation (`CAMADA_CHALLENGE=0` opts out); any other request (fetch, XHR, API call) passes with `x-camada-challenge: 1` | `blk: "challenge"` for the page, `chs: 1` for a passed request |
+| `challenge` | serves the proof-of-work page to a page load or client navigation (App Router `RSC`, Pages Router `/_next/data`) (`CAMADA_CHALLENGE=0` opts out); any other request (fetch, XHR, API call) passes with `x-camada-challenge: 1` | `blk: "challenge"` for the page, `chs: 1` for a passed request |
 | `warn` | passes the request and marks it for the analyst | `wrn: "<rule id>"` |
 
 A skip rule also carries a *record matches* flag, which only the analyst reads: a recorded skip
