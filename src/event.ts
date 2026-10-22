@@ -1,6 +1,7 @@
 // One wire-event builder for every @camada/next entry (middleware + beacon route). Web APIs
 // only: this sits in the middleware's edge-safe import graph.
 import { buildWireEvent, hmacHex, safeEqual, TAP_NEXT, type WireEvent } from '@camada/core';
+import { envSource } from './engine';
 
 export function buildEvent(req: Request, path: string, ip: string | null, rid: string, sid: string | null, newSession: boolean): WireEvent {
   const url = new URL(req.url);
@@ -16,7 +17,8 @@ export function buildEvent(req: Request, path: string, ip: string | null, rid: s
       ip,
       httpVersion: null,   // not observable at this position
     },
-    { tap: TAP_NEXT, rid, sid, newSession, ja4: req.headers.get('x-vercel-ja4-digest') },
+    // ja4 only on Vercel (the server env, which a client cannot set): elsewhere x-vercel-ja4-digest is client-settable.
+    { tap: TAP_NEXT, rid, sid, newSession, ja4: envSource().VERCEL ? req.headers.get('x-vercel-ja4-digest') : null },
   );
 }
 
