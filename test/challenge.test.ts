@@ -150,6 +150,15 @@ describe('serving the challenge', () => {
     expect(await challengeGate(req('/challenge-me', { accept: 'application/json', 'x-forwarded-for': CHALLENGED_IP }))).toBeNull();
   });
 
+  it('challenges a Pages Router data request (x-nextjs-data) like a page', async () => {
+    const { handler } = await primed();
+    const res = await handler(req('/_next/data/b/checkout.json', { accept: '*/*', 'x-nextjs-data': '1', 'x-forwarded-for': CHALLENGED_IP }), asEvent(fakeEvent()));
+    expect(res!.status).toBe(403);
+    expect(res!.headers.get('x-camada-challenge')).toBe('1');
+    const plain = await handler(req('/api/data', { accept: 'application/json', 'x-forwarded-for': CHALLENGED_IP }), asEvent(fakeEvent()));
+    expect(plain!.status).not.toBe(403);
+  });
+
   it('challenges on a path rule, not just an ip', async () => {
     const { handler } = await primed();
     const res = await handler(req('/admin/users', { ...HTML, 'x-forwarded-for': '8.8.8.8' }), asEvent(fakeEvent()));
@@ -330,6 +339,17 @@ describe('challengeGate()', () => {
     const forged = await challengeGate(new Request(url, { headers: { ...HTML, 'x-forwarded-for': '8.8.8.8', 'x-camada-rid': 'forged' } }));
     expect(forged!.status).toBe(403);
     expect(events(a).filter((e) => e.blk === 'challenge')).toHaveLength(1);
+  });
+
+  it('a non-challengeable request ships a chs: 1 event unless the middleware marked it', async () => {
+    const { a } = await primed();
+    const url = 'https://app.example/challenge-me';
+    const json = { accept: 'application/json', 'x-forwarded-for': '8.8.8.8' };
+    expect(await challengeGate(new Request(url, { headers: json }))).toBeNull();
+    expect(events(a).filter((e) => e.chs === 1)).toHaveLength(1);
+    const mark = await middlewareMark(ENV.CAMADA_KEY, new Request(url, { headers: { 'x-forwarded-for': '8.8.8.8' } }), 'already-captured');
+    expect(await challengeGate(new Request(url, { headers: { ...json, 'x-camada-rid': 'already-captured', 'x-camada-mw': mark } }))).toBeNull();
+    expect(events(a).filter((e) => e.chs === 1)).toHaveLength(1);
   });
 
   it('ships the challenge row itself when the middleware did not cover the route', async () => {
