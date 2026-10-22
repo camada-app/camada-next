@@ -3,7 +3,7 @@
 // the middleware serves the proof-of-work page, camadaRoute()'s POST verifies the solution and
 // sets `_cch`, and the cookie lets the next request through. The proof of work is solved here
 // with the same WebCrypto the page's inline solver reproduces in a browser.
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { NextRequest, type NextFetchEvent } from 'next/server';
 import { CHALLENGE_COOKIE } from '@camada/core';
 import { camada } from '../src/middleware';
@@ -98,11 +98,66 @@ describe('serving the challenge', () => {
     await check(gated!);
   });
 
-  it('answers 403 JSON for a non-HTML request', async () => {
+  it('lets a non-HTML request through with the signal header and a chs event', async () => {
+    const { a, handler } = await primed({}, {});
+    const ev = fakeEvent();
+    const res = await handler(req('/checkout', { accept: 'application/json', 'x-forwarded-for': CHALLENGED_IP }), asEvent(ev));
+    await ev.settled();
+    expect(res!.status).toBe(200);
+    expect(res!.headers.get('x-camada-challenge')).toBe('1');
+    expect(res!.headers.get('x-rid')).toBeTruthy();
+    expect(res!.headers.get('cache-control')).toBe('no-store');
+    expect(events(a).at(-1)).toMatchObject({ chs: 1, tap: 'sdk-next' });
+    expect(events(a).at(-1)!.blk).toBeUndefined();
+  });
+
+  it('ships a signalled request whatever sample and exclude say', async () => {
+    const { a, handler } = await primed();
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(1.5);   // sampled out
+    const ev = fakeEvent();
+    await handler(req('/checkout', { accept: 'application/json', 'x-forwarded-for': CHALLENGED_IP }), asEvent(ev));
+    await ev.settled();
+    rnd.mockRestore();
+    expect(events(a).filter((e) => e.chs === 1)).toHaveLength(1);
+  });
+
+  it('passes an App Router navigation (RSC: 1, as a direct NextRequest) signalled; Next hides the header in a real app', async () => {
     const { handler } = await primed();
+    const res = await handler(req('/cart', { rsc: '1', accept: 'text/x-component', 'x-forwarded-for': CHALLENGED_IP }), asEvent(fakeEvent()));
+    expect(res!.status).toBe(200);
+    expect(res!.headers.get('x-camada-challenge')).toBe('1');
+  });
+
+  it('stamps nothing on a non-HTML request that holds a valid _cch', async () => {
+    const { a, handler } = await primed();
+    const cookie = (await pass(handler)).headers.get('set-cookie')!.split(';')[0];
+    a.events.length = 0;
+    const ev = fakeEvent();
+    const res = await handler(req('/checkout', { accept: 'application/json', cookie, 'x-forwarded-for': CHALLENGED_IP }), asEvent(ev));
+    await ev.settled();
+    expect(res!.status).toBe(200);
+    expect(res!.headers.get('x-camada-challenge')).toBeNull();
+    expect(events(a).some((e) => e.chs)).toBe(false);
+  });
+
+  it('stamps nothing when the challenge is off', async () => {
+    const { handler } = await primed({ CAMADA_CHALLENGE: '0' });
     const res = await handler(req('/checkout', { accept: 'application/json', 'x-forwarded-for': CHALLENGED_IP }), asEvent(fakeEvent()));
+    expect(res?.headers.get('x-camada-challenge') ?? null).toBeNull();
+  });
+
+  it('challengeGate lets a non-HTML request continue', async () => {
+    await primed();
+    expect(await challengeGate(req('/challenge-me', { accept: 'application/json', 'x-forwarded-for': CHALLENGED_IP }))).toBeNull();
+  });
+
+  it('challenges a Pages Router data request (x-nextjs-data) like a page', async () => {
+    const { handler } = await primed();
+    const res = await handler(req('/_next/data/b/checkout.json', { accept: '*/*', 'x-nextjs-data': '1', 'x-forwarded-for': CHALLENGED_IP }), asEvent(fakeEvent()));
     expect(res!.status).toBe(403);
-    expect(await res!.json()).toEqual({ error: 'challenge_required' });
+    expect(res!.headers.get('x-camada-challenge')).toBe('1');
+    const plain = await handler(req('/api/data', { accept: 'application/json', 'x-forwarded-for': CHALLENGED_IP }), asEvent(fakeEvent()));
+    expect(plain!.status).not.toBe(403);
   });
 
   it('challenges on a path rule, not just an ip', async () => {
@@ -285,6 +340,24 @@ describe('challengeGate()', () => {
     const forged = await challengeGate(new Request(url, { headers: { ...HTML, 'x-forwarded-for': '8.8.8.8', 'x-camada-rid': 'forged' } }));
     expect(forged!.status).toBe(403);
     expect(events(a).filter((e) => e.blk === 'challenge')).toHaveLength(1);
+  });
+
+  it('a non-challengeable request ships a chs: 1 event unless the middleware marked it', async () => {
+    const { a } = await primed();
+    const url = 'https://app.example/challenge-me';
+    const json = { accept: 'application/json', 'x-forwarded-for': '8.8.8.8' };
+    expect(await challengeGate(new Request(url, { headers: json }))).toBeNull();
+    expect(events(a).filter((e) => e.chs === 1)).toHaveLength(1);
+    const base = new Request(url, { headers: { 'x-forwarded-for': '8.8.8.8' } });
+    // a valid mark: the middleware saw the request, so the gate ships nothing
+    const mark = await middlewareMark(ENV.CAMADA_KEY, base, 'already-captured');
+    expect(await challengeGate(new Request(url, { headers: { ...json, 'x-camada-rid': 'already-captured', 'x-camada-mw': mark } }))).toBeNull();
+    expect(events(a).filter((e) => e.chs === 1)).toHaveLength(1);
+    // a tampered mark counts as no mark: the gate ships one row
+    const ts = mark.split('.')[0];
+    const forged = `${ts}.${mark.split('.')[1].replace(/.$/, (c) => (c === '0' ? '1' : '0'))}`;
+    expect(await challengeGate(new Request(url, { headers: { ...json, 'x-camada-rid': 'already-captured', 'x-camada-mw': forged } }))).toBeNull();
+    expect(events(a).filter((e) => e.chs === 1)).toHaveLength(2);
   });
 
   it('ships the challenge row itself when the middleware did not cover the route', async () => {

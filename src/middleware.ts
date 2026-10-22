@@ -12,7 +12,7 @@ import type { NextFetchEvent, NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { resolveClientIp, logRateLimited, guarded, guardedAsync } from '@camada/core';
 import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } from './engine';
-import { isChallengeRoute, challengePassed, serveChallenge } from './challenge';
+import { isChallengeRoute, challengePassed, serveChallenge, isChallengeable } from './challenge';
 import { buildEvent, cookieValue, middlewareMark, MW_HEADER, SESSION_COOKIE } from './event';
 
 /** camadaRoute()'s beacon endpoints (mounted at /api/camada/[...camada]). Camada's own, like core's scriptPath/fpPath:
@@ -28,16 +28,18 @@ export interface CamadaMiddlewareOptions {
 export type MiddlewareResult = Response | undefined | Promise<Response | undefined>;
 
 /** The ordinary path: ship one pre-response event, stamp the rid (and its proof for withCamada()),
- *  mint the session cookie. `warnRule` is the id of the `warn` rule that let this request through, if one did (§D3). */
-async function capture(engine: Engine, req: NextRequest, path: string, ip: string | null, existingSid: string | null, warnRule: string | null, waitUntil?: (p: Promise<unknown>) => void): Promise<Response> {
+ *  mint the session cookie. `signalled`: a non-HTML request that passed under a challenge (82ar): `x-camada-challenge: 1` on the
+ *  response and `chs: 1` on the event, which then ships whatever sample and exclude say. `warnRule` is the id of the `warn` rule that let this request through, if one did (§D3). */
+async function capture(engine: Engine, req: NextRequest, path: string, ip: string | null, existingSid: string | null, warnRule: string | null, waitUntil?: (p: Promise<unknown>) => void, signalled = false): Promise<Response> {
   const rid = crypto.randomUUID();
   const sid = existingSid ?? crypto.randomUUID();
   const cfg = engine.snap.config;
   const excluded = (cfg?.exclude || []).some((x) => path.startsWith(x));
-  if (!excluded && Math.random() < (cfg?.sample ?? 1)) {
+  if (signalled || (!excluded && Math.random() < (cfg?.sample ?? 1))) {
     // st stays null: middleware ships pre-response, like the edge collector's tap.
     const ev = buildEvent(req, path, ip, rid, sid, !existingSid);
     if (warnRule) ev.wrn = warnRule;
+    if (signalled) ev.chs = 1;
     engine.queue.push(ev);
     engine.queue.flush(waitUntil);
   }
@@ -51,6 +53,10 @@ async function capture(engine: Engine, req: NextRequest, path: string, ip: strin
   if (mark) headers.set(MW_HEADER, mark);
   const res = NextResponse.next({ request: { headers } });
   res.headers.set('x-rid', rid);
+  if (signalled) {
+    res.headers.set('x-camada-challenge', '1');
+    res.headers.set('cache-control', 'no-store');   // the signal is per client: a shared cache must not hand it to others
+  }
   if (!existingSid) {
     const secure = new URL(req.url).protocol === 'https:' ? '; Secure' : '';
     res.headers.append('set-cookie', `${SESSION_COOKIE}=${sid}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax${secure}`);
@@ -126,12 +132,19 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
       // its session cookie and its event, so an hour of `_cch` is not an hour of blindness.
       // guardedAsync covers the whole branch — the synchronous catch below cannot see a
       // rejection from these awaits, and WebCrypto is not guaranteed to exist.
+      // Only a page or a Pages Router data request (`x-nextjs-data: 1`; Next turns a 403 into a document load) is challenged.
+      // Any other request passes, signalled: x-camada-challenge: 1 and chs: 1 (82ar). That includes App Router soft navigations:
+      // Next strips the RSC header before middleware runs, so they look like any fetch; the next document load meets the page.
       if (v.challenge && ip && challengeEnabled() && !isChallengeRoute(path)) {
-        return guardedAsync(async () => (
-          (await challengePassed(engine, req, ip))
-            ? capture(engine, req, path, ip, existingSid, warnRule, waitUntil)
-            : serveChallenge(engine, req, ip, path + new URL(req.url).search, waitUntil)
-        ), passThrough(req));
+        const page = isChallengeable(req);
+        // A signalled beacon request falls through to the beacon branch below: camada's own answer carries no signal.
+        if (page || !isBeaconRoute(req.method, path)) {
+          return guardedAsync(async () => {
+            const passed = await challengePassed(engine, req, ip);
+            if (page && !passed) return serveChallenge(engine, req, ip, path + new URL(req.url).search, waitUntil);
+            return capture(engine, req, path, ip, existingSid, warnRule, waitUntil, !passed);
+          }, passThrough(req));
+        }
       }
 
       if (isBeaconRoute(req.method, path)) return passThrough(req);   // no row, no x-rid: the route handler answers it
