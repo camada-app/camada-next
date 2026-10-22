@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- The route-handler beacon relay now stamps `rts` (the relay's receive time) on each `sig:1` row, after the body, so a browser cannot set it. edge-analyst prefers a bounded `rts` over the browser `ts`; every other relay already sent it. (camada-all-10fg)
 - A signalled response (`x-camada-challenge: 1`) now also sets `cdn-cache-control`,
   `surrogate-control`, `cloudflare-cdn-cache-control`, `vercel-cdn-cache-control` and
   `netlify-cdn-cache-control` to `no-store`, overriding the app's. CDNs read those ahead of
