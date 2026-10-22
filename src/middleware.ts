@@ -129,8 +129,8 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
       // its session cookie and its event, so an hour of `_cch` is not an hour of blindness.
       // guardedAsync covers the whole branch — the synchronous catch below cannot see a
       // rejection from these awaits, and WebCrypto is not guaranteed to exist.
-      // Only a page or an App Router client navigation (`RSC: 1`, which Next turns into a document load when the
-      // answer is a 403) is challenged. Any other request passes, signalled: x-camada-challenge: 1 and chs: 1 (82ar).
+      // Only a page or a client navigation's data request (App Router `RSC: 1`, Pages Router `x-nextjs-data: 1`; Next turns
+      // a 403 into a document load) is challenged. Any other request passes, signalled: x-camada-challenge: 1 and chs: 1 (82ar).
       if (v.challenge && ip && challengeEnabled() && !isChallengeRoute(path)) {
         const page = isChallengeable(req);
         // A signalled beacon request falls through to the beacon branch below: camada's own answer carries no signal.

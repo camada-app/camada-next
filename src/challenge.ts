@@ -94,9 +94,10 @@ export async function verifyChallenge(engine: Engine, req: Request): Promise<Res
   });
 }
 
-/** Only a page or an App Router client navigation (`RSC: 1`) is challenged; any other request passes, signalled (82ar). */
+/** Only a page or a client navigation's data request is challenged: App Router `RSC: 1`, Pages Router `/_next/data`
+ *  (`x-nextjs-data: 1`; Next turns its non-ok answer into a hard navigation). Any other request passes, signalled (82ar). */
 export function isChallengeable(req: Request): boolean {
-  return wantsHtml(req.headers.get('accept'), req.headers.get('sec-fetch-dest')) || req.headers.get('rsc') === '1';
+  return wantsHtml(req.headers.get('accept'), req.headers.get('sec-fetch-dest')) || req.headers.get('rsc') === '1' || req.headers.get('x-nextjs-data') === '1';
 }
 
 /** For a route that wants to gate itself (the example's /challenge-me): the challenge Response,
@@ -107,17 +108,28 @@ export function isChallengeable(req: Request): boolean {
  *  request's row (a client-sent rid alone proves nothing); the gate then serves
  *  the page WITHOUT a second row, which would double-count the request at the analyst. Exclude
  *  the gated route from the middleware matcher and the gate ships the `blk: "challenge"` row
- *  itself — that is the configuration to use when you want the challenge counted. */
+ *  itself — that is the configuration to use when you want the challenge counted.
+ *
+ *  A request that is not challengeable passes (null) and the gate ships its `chs: 1` event unless the middleware did;
+ *  a null return cannot set `x-camada-challenge: 1`, so the route's own response should set it if the frontend is to see it. */
 export async function challengeGate(req: Request): Promise<Response | null> {
   if (isDisabled() || !challengeEnabled()) return null;
   const engine = getEngine();
   if (!engine) return null;
-  // A non-HTML request that is not an RSC navigation is not challenged (82ar): the route continues. The middleware already
-  // signalled it (x-camada-challenge, chs: 1); a route outside the matcher gets no header or event from the gate.
-  if (!isChallengeable(req)) return null;
+  const challengeable = isChallengeable(req);
   const ip = clientIp(engine, req);
   if (!ip || await challengePassed(engine, req, ip)) return null;   // unidentifiable client: fail open
   const url = new URL(req.url);
   const shipped = await middlewareMarkValid(engine.env.secret, req).catch(() => false);
+  if (!challengeable) {
+    // Not challenged (82ar): the route continues. Unless the middleware already shipped this request, ship its chs: 1 event here.
+    if (!shipped) {
+      const ev = buildEvent(req, url.pathname, ip, crypto.randomUUID(), cookieValue(req.headers.get('cookie') || '', SESSION_COOKIE), false);
+      ev.chs = 1;
+      engine.queue.push(ev);
+      engine.queue.flush();
+    }
+    return null;
+  }
   return serveChallenge(engine, req, ip, url.pathname + url.search, undefined, !shipped);
 }
