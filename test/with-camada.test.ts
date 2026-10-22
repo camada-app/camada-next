@@ -9,7 +9,7 @@ import { track } from '../src/track';
 import { camada } from '../src/middleware';
 import { middlewareMark, MW_WINDOW_MS } from '../src/event';
 import { configure } from '../src/engine';
-import { fakeAnalyst, fakeEvent, ENV, BLOCKED_IP, type FakeAnalyst } from './harness';
+import { fakeAnalyst, fakeEvent, ENV, BLOCKED_IP, CHALLENGED_IP, type FakeAnalyst } from './harness';
 
 // next/server's after(): a stand-in that records the callbacks, or throws as it does outside a request scope.
 let afterImpl: ((task: () => Promise<unknown>) => void) | null = null;
@@ -60,6 +60,21 @@ const slowBody = (): ReadableStream<Uint8Array> => {
 };
 
 describe('withCamada', () => {
+  it('a non-HTML request under a challenge reaches the handler with x-camada-challenge and a chs event (82ar)', async () => {
+    const a = fakeAnalyst();
+    a.v4 = true;
+    configure({ env, fetchImpl: a.fetchImpl });
+    vi.stubGlobal('fetch', a.fetchImpl);
+    const GET = withCamada(async (_req: Request, _ctx: { params: Promise<object> }) => Response.json({ ok: 1 }));
+    const call = () => GET(new Request('https://app.example/api/data', { headers: { accept: 'application/json', 'x-forwarded-for': CHALLENGED_IP } }), { params: Promise.resolve({}) });
+    await call(); await settle(); a.events.length = 0;   // cold: loads the v4 snapshot
+    const res = await call();
+    await settle();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-camada-challenge')).toBe('1');
+    expect(evs(a)).toEqual([expect.objectContaining({ chs: 1, st: 200 })]);
+  });
+
   it('ships one sdk-next event with st and a dur covering a streamed body, and mints the session', async () => {
     const a = await primed();
     const GET = withCamada(async (_req: Request, _ctx: { params: Promise<object> }) => new Response(slowBody(), { status: 201, headers: SSE }));
