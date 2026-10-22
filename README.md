@@ -52,7 +52,8 @@ rate-limited `console.error` says why.
   unsampled), stamps `x-camada-rid` onto the forwarded request (dropping any the client sent)
   and `x-rid` onto the response, and ships the wire event fire-and-forget with tap
   `sdk-next`. `x-vercel-ja4-digest` — a real TLS fingerprint — rides along as `ja4` only when the
-  `VERCEL` platform env var is set (elsewhere a client can set that header).
+  `VERCEL` platform env var is set (elsewhere a client can set that header; so don't ship a
+  `vercel env pull` `.env.local`, which sets `VERCEL=1`, to a self-hosted deploy).
 - **`camadaRoute()`** — `GET …/b.js` serves the `@camada/browser` IIFE first-party (no CSP
   or ad-blocker friction); `POST …/fp` relays the beacon body to ingest with the
   trusted-proxy-resolved client IP and `tap: 'sdk-next'` injected. Works on both runtimes.

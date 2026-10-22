@@ -4,7 +4,7 @@
 
 ### Security
 
-- `ja4` is now read from `x-vercel-ja4-digest` only when the `VERCEL` env var is set. Off Vercel (self-hosted Next, another proxy) a client could set that header and forge the TLS fingerprint. (camada-all-av1f)
+- `ja4` is now read from `x-vercel-ja4-digest` only when the `VERCEL` env var is set. Off Vercel (self-hosted Next, another proxy) a client could set that header and forge the TLS fingerprint. A self-hosted deploy that loads a `vercel env pull` `.env.local` (`VERCEL=1`) still forwards it; the analyst counts sdk-next ja4 for its own tenant only either way. (camada-all-av1f)
 
 ### Fixed
 
