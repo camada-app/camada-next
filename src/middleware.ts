@@ -17,6 +17,8 @@ import { buildEvent, cookieValue, middlewareMark, MW_HEADER, SESSION_COOKIE } fr
 
 /** camadaRoute()'s beacon endpoints (mounted at /api/camada/[...camada]). Camada's own, like core's scriptPath/fpPath:
  *  after enforcement they are neither captured nor stamped with x-rid. */
+/** Per-client signal: no shared cache may keep the copy. CDNs read their own header ahead of cache-control. */
+const NO_STORE_HEADERS = ['cache-control', 'cdn-cache-control', 'surrogate-control', 'cloudflare-cdn-cache-control', 'vercel-cdn-cache-control', 'netlify-cdn-cache-control'];
 const isBeaconRoute = (method: string, path: string): boolean =>
   (method === 'GET' && path === '/api/camada/b.js') || (method === 'POST' && path === '/api/camada/fp');
 
@@ -55,7 +57,7 @@ async function capture(engine: Engine, req: NextRequest, path: string, ip: strin
   res.headers.set('x-rid', rid);
   if (signalled) {
     res.headers.set('x-camada-challenge', '1');
-    res.headers.set('cache-control', 'no-store');   // the signal is per client: a shared cache must not hand it to others
+    for (const n of NO_STORE_HEADERS) res.headers.set(n, 'no-store');   // the signal is per client: a shared cache must not hand it to others
   }
   if (!existingSid) {
     const secure = new URL(req.url).protocol === 'https:' ? '; Secure' : '';
