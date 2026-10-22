@@ -7,7 +7,7 @@
 // Works on BOTH runtimes (edge and node): Web APIs only, no node: imports. Unconfigured or
 // disabled: GET 404s, POST answers 204 and drops — inert, never an error.
 import iife from '@camada/browser/iife-string';
-import { guardedAsync, resolveClientIp, readBodyCapped, TAP_NEXT } from '@camada/core';
+import { guardedAsync, resolveClientIp, readBodyCapped, TAP_NEXT, REQUEST_ROW_KEYS } from '@camada/core';
 import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } from './engine';
 import { verifyChallenge } from './challenge';
 import { buildEvent, cookieValue, SESSION_COOKIE } from './event';
@@ -89,7 +89,9 @@ export function camadaRoute(): {
         let parsed: unknown;
         try { parsed = JSON.parse(body); } catch { return noContent(); }   // not a beacon: drop it, never ship junk
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          engine.queue.push({ ...(parsed as Record<string, unknown>), sig: 1, ip, tap: TAP_NEXT, rts: Date.now() });   // rts after the spread: the relay's clock, never the browser's
+          const row: Record<string, unknown> = { ...(parsed as Record<string, unknown>), sig: 1, ip, tap: TAP_NEXT, rts: Date.now() };   // rts after the spread: the relay's clock, never the browser's
+          for (const k of REQUEST_ROW_KEYS) delete row[k];   // SDK-attested keys never ride a visitor's beacon, as core's relay
+          engine.queue.push(row);
           void engine.queue.flush();   // fire-and-forget, as the relay was: a serverless runtime may freeze right after the response
         }
       }
