@@ -10,9 +10,9 @@
 // 'next/server', which is itself edge-safe.
 import type { NextFetchEvent, NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { resolveClientIp, logRateLimited, guarded, guardedAsync, wantsHtml } from '@camada/core';
+import { resolveClientIp, logRateLimited, guarded, guardedAsync } from '@camada/core';
 import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } from './engine';
-import { isChallengeRoute, challengePassed, serveChallenge } from './challenge';
+import { isChallengeRoute, challengePassed, serveChallenge, isChallengeable } from './challenge';
 import { buildEvent, cookieValue, middlewareMark, MW_HEADER, SESSION_COOKIE } from './event';
 
 /** camadaRoute()'s beacon endpoints (mounted at /api/camada/[...camada]). Camada's own, like core's scriptPath/fpPath:
@@ -132,13 +132,13 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
       // Only a page or an App Router client navigation (`RSC: 1`, which Next turns into a document load when the
       // answer is a 403) is challenged. Any other request passes, signalled: x-camada-challenge: 1 and chs: 1 (82ar).
       if (v.challenge && ip && challengeEnabled() && !isChallengeRoute(path)) {
-        const page = wantsHtml(req.headers.get('accept'), req.headers.get('sec-fetch-dest')) || req.headers.get('rsc') === '1';
+        const page = isChallengeable(req);
         // A signalled beacon request falls through to the beacon branch below: camada's own answer carries no signal.
         if (page || !isBeaconRoute(req.method, path)) {
           return guardedAsync(async () => {
             const passed = await challengePassed(engine, req, ip);
-            if (!page || passed) return capture(engine, req, path, ip, existingSid, warnRule, waitUntil, !page && !passed);
-            return serveChallenge(engine, req, ip, path + new URL(req.url).search, waitUntil);
+            if (page && !passed) return serveChallenge(engine, req, ip, path + new URL(req.url).search, waitUntil);
+            return capture(engine, req, path, ip, existingSid, warnRule, waitUntil, !passed);
           }, passThrough(req));
         }
       }
