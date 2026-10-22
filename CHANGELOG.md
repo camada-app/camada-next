@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Security
+
+- `ja4` is now read from `x-vercel-ja4-digest` only when the `VERCEL` env var is set. Off Vercel (self-hosted Next, another proxy) a client could set that header and forge the TLS fingerprint. (camada-all-av1f)
+
 ### Fixed
 
 - A signalled response (`x-camada-challenge: 1`) now also sets `cdn-cache-control`,
