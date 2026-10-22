@@ -115,12 +115,22 @@ describe('request capture', () => {
 
   it('passes x-vercel-ja4-digest through as ja4', async () => {
     const a = fakeAnalyst();
-    const handler = await primed(a);
+    const handler = await primed(a, { VERCEL: '1' });
     const ev = fakeEvent();
     handler(req('/', { 'x-vercel-ja4-digest': 'ja4_deadbeef' }), asEvent(ev));
     await ev.settled();
     const e = (a.events.flat() as Array<Record<string, unknown>>)[0];
     expect(e.ja4).toBe('ja4_deadbeef');
+  });
+
+  it('drops x-vercel-ja4-digest off Vercel', async () => {
+    const a = fakeAnalyst();
+    const handler = await primed(a);
+    const ev = fakeEvent();
+    handler(req('/', { 'x-vercel-ja4-digest': 'ja4_forged' }), asEvent(ev));
+    await ev.settled();
+    const e = (a.events.flat() as Array<Record<string, unknown>>)[0];
+    expect(e.ja4 ?? undefined).toBeUndefined();
   });
 
   it('honors config exclude', async () => {
