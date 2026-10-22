@@ -17,8 +17,8 @@ export function buildEvent(req: Request, path: string, ip: string | null, rid: s
       ip,
       httpVersion: null,   // not observable at this position
     },
-    { tap: TAP_NEXT, rid, sid, newSession, // ja4 only on Vercel: elsewhere the header is client-settable, so it would be forgeable.
-    ja4: envSource().VERCEL ? req.headers.get('x-vercel-ja4-digest') : null },
+    // ja4 only on Vercel (the server env, which a client cannot set): elsewhere x-vercel-ja4-digest is client-settable.
+    { tap: TAP_NEXT, rid, sid, newSession, ja4: envSource().VERCEL ? req.headers.get('x-vercel-ja4-digest') : null },
   );
 }
 
