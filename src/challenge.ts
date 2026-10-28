@@ -110,16 +110,17 @@ export function signalChallenge(h: Headers): void {
   for (const n of NO_STORE_HEADERS) h.set(n, 'no-store');
 }
 
-/** signalChallenge on `res`, in place, or on a copy when its headers are immutable (`Response.redirect()`, a `fetch()`
- *  result), as withRid does. A 101 upgrade is left alone. */
-function signalled(res: Response): Response {
+/** Edit `res`'s headers in place, or a copy's when they are immutable (`Response.redirect()`, a `fetch()` result): same
+ *  status and body. A 101 upgrade is left alone. */
+export function editHeaders(res: Response, edit: (h: Headers) => void): Response {
   if (res.status === 101) return res;
   try {
-    signalChallenge(res.headers);
+    edit(res.headers);
     return res;
   } catch {
+    // ponytail: core's copyResponse is not exported; its Deno and @hono/node-server cases never reach a Next route.
     const out = new Response(res.body, res);
-    signalChallenge(out.headers);
+    edit(out.headers);
     return out;
   }
 }
@@ -145,7 +146,7 @@ export async function challengeGate(req: Request, render?: () => Response | Prom
   const { res, signal } = await gate(req);
   if (res || !render) return res;
   const out = await render();
-  return signal ? signalled(out) : out;
+  return signal ? editHeaders(out, signalChallenge) : out;
 }
 
 async function gate(req: Request): Promise<{ res: Response | null; signal: boolean }> {
