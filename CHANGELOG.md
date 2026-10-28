@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 (2026-10-28; follows 0.4.0)
+
+Built against `@camada/core` 0.6.1.
 
 ### Added
 
