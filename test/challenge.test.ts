@@ -366,4 +366,64 @@ describe('challengeGate()', () => {
     expect(gate!.status).toBe(403);
     expect(events(a).filter((e) => e.blk === 'challenge')).toHaveLength(1);
   });
+
+  describe('with render', () => {
+    const url = 'https://app.example/challenge-me';
+    const json = { accept: 'application/json', 'x-forwarded-for': '8.8.8.8' };
+    const NO_STORE = ['cache-control', 'cdn-cache-control', 'surrogate-control', 'cloudflare-cdn-cache-control', 'vercel-cdn-cache-control', 'netlify-cdn-cache-control'];
+    const app = () => new Response('ok', { headers: { 'cache-control': 'public, max-age=60' } });
+    const expectSignal = (r: Response) => {
+      expect(r.status).toBe(200);
+      expect(r.headers.get('x-camada-challenge')).toBe('1');
+      for (const n of NO_STORE) expect(r.headers.get(n)).toBe('no-store');
+    };
+
+    it('signals the render of a non-HTML request and ships one chs: 1 event', async () => {
+      const { a } = await primed();
+      const r = await challengeGate(new Request(url, { headers: json }), app);
+      expectSignal(r);
+      expect(await r.text()).toBe('ok');
+      expect(events(a).filter((e) => e.chs === 1)).toHaveLength(1);
+    });
+
+    it('signals with a valid middleware mark and ships nothing new', async () => {
+      const { a } = await primed();
+      const mark = await middlewareMark(ENV.CAMADA_KEY, new Request(url, { headers: { 'x-forwarded-for': '8.8.8.8' } }), 'already-captured');
+      expectSignal(await challengeGate(new Request(url, { headers: { ...json, 'x-camada-rid': 'already-captured', 'x-camada-mw': mark } }), app));
+      expect(events(a).filter((e) => e.chs === 1)).toHaveLength(0);
+    });
+
+    it('serves the challenge page to HTML without calling render', async () => {
+      await primed();
+      const render = vi.fn(app);
+      const r = await challengeGate(new Request(url, { headers: { ...HTML, 'x-forwarded-for': '8.8.8.8' } }), render);
+      expect(r.status).toBe(403);
+      expect(render).not.toHaveBeenCalled();
+    });
+
+    it('leaves a passed client alone', async () => {
+      await primed();
+      const gate = await challengeGate(new Request(url, { headers: { ...HTML, 'x-forwarded-for': '8.8.8.8' } }));
+      const nonce = nonceOf(await gate!.text());
+      const ok = await camadaRoute().POST(new Request('https://app.example/api/camada/challenge', {
+        method: 'POST',
+        headers: { 'x-forwarded-for': '8.8.8.8', 'content-type': 'application/x-www-form-urlencoded' },
+        body: `nonce=${nonce}&solution=${await solve(nonce)}&to=%2Fchallenge-me`,
+      }));
+      const cookie = ok.headers.get('set-cookie')!.split(';')[0];
+      const r = await challengeGate(new Request(url, { headers: { ...json, cookie } }), app);
+      expect(await r.text()).toBe('ok');
+      expect(r.headers.get('x-camada-challenge')).toBeNull();
+      expect(r.headers.get('cache-control')).toBe('public, max-age=60');
+    });
+
+    it('signals a copy when the headers are immutable', async () => {
+      await primed();
+      const r = await challengeGate(new Request(url, { headers: json }), () => Response.redirect('https://app.example/elsewhere', 302));
+      expect(r.status).toBe(302);
+      expect(r.headers.get('location')).toBe('https://app.example/elsewhere');
+      expect(r.headers.get('x-camada-challenge')).toBe('1');
+      expect(r.headers.get('cache-control')).toBe('no-store');
+    });
+  });
 });
