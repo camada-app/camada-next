@@ -101,8 +101,31 @@ export function isChallengeable(req: Request): boolean {
   return wantsHtml(req.headers.get('accept'), req.headers.get('sec-fetch-dest')) || req.headers.get('x-nextjs-data') === '1';
 }
 
+/** Per-client signal: no shared cache may keep the copy. CDNs read their own header ahead of cache-control. */
+const NO_STORE_HEADERS = ['cache-control', 'cdn-cache-control', 'surrogate-control', 'cloudflare-cdn-cache-control', 'vercel-cdn-cache-control', 'netlify-cdn-cache-control'];
+
+/** `x-camada-challenge: 1` plus no-store: the signal on a non-HTML request that passed under a challenge (82ar). */
+export function signalChallenge(h: Headers): void {
+  h.set('x-camada-challenge', '1');
+  for (const n of NO_STORE_HEADERS) h.set(n, 'no-store');
+}
+
+/** signalChallenge on `res`, in place, or on a copy when its headers are immutable (`Response.redirect()`, a `fetch()`
+ *  result), as withRid does. A 101 upgrade is left alone. */
+function signalled(res: Response): Response {
+  if (res.status === 101) return res;
+  try {
+    signalChallenge(res.headers);
+    return res;
+  } catch {
+    const out = new Response(res.body, res);
+    signalChallenge(out.headers);
+    return out;
+  }
+}
+
 /** For a route that wants to gate itself (the example's /challenge-me): the challenge Response,
- *  or null when this client already holds a valid `_cch` and the route should render normally.
+ *  or, once this client already holds a valid `_cch`, the route's own.
  *
  *  One request, one event. The middleware stamps `x-camada-rid` and its `x-camada-mw` proof on
  *  the request it forwards, so a mark that verifies means the middleware already shipped this
@@ -111,18 +134,28 @@ export function isChallengeable(req: Request): boolean {
  *  the gated route from the middleware matcher and the gate ships the `blk: "challenge"` row
  *  itself — that is the configuration to use when you want the challenge counted.
  *
- *  A request that is not challengeable returns null. The gate ships one `chs: 1` row only when there is no valid
- *  middleware mark (the middleware did not see the request) and the ip has no valid `_cch`; with a valid mark it ships
- *  nothing. A null return cannot set headers: the route sets `x-camada-challenge: 1` and `no-store` on `cache-control`
- *  and the CDN cache headers (`cdn-cache-control`, `surrogate-control`, `cloudflare-`/`vercel-`/`netlify-cdn-cache-control`)
- *  itself if it wants the frontend to see the signal. */
-export async function challengeGate(req: Request): Promise<Response | null> {
-  if (isDisabled() || !challengeEnabled()) return null;
+ *  `challengeGate(req)` returns null when the route should render normally. `challengeGate(req, render)` returns the
+ *  challenge Response or `await render()`. A request that is not challengeable gets the middleware's signal on that
+ *  render (`x-camada-challenge: 1`, no-store on `cache-control` and the CDN cache headers), overriding the app's.
+ *  The gate ships one `chs: 1` row only when there is no valid middleware mark (the middleware did not see the
+ *  request) and the ip has no valid `_cch`; with a valid mark it ships nothing. */
+export function challengeGate(req: Request): Promise<Response | null>;
+export function challengeGate(req: Request, render: () => Response | Promise<Response>): Promise<Response>;
+export async function challengeGate(req: Request, render?: () => Response | Promise<Response>): Promise<Response | null> {
+  const { res, signal } = await gate(req);
+  if (res || !render) return res;
+  const out = await render();
+  return signal ? signalled(out) : out;
+}
+
+async function gate(req: Request): Promise<{ res: Response | null; signal: boolean }> {
+  const pass = { res: null, signal: false };
+  if (isDisabled() || !challengeEnabled()) return pass;
   const engine = getEngine();
-  if (!engine) return null;
+  if (!engine) return pass;
   const challengeable = isChallengeable(req);
   const ip = clientIp(engine, req);
-  if (!ip || await challengePassed(engine, req, ip)) return null;   // unidentifiable client: fail open
+  if (!ip || await challengePassed(engine, req, ip)) return pass;   // unidentifiable client: fail open
   const url = new URL(req.url);
   const shipped = await middlewareMarkValid(engine.env.secret, req).catch(() => false);
   if (!challengeable) {
@@ -133,7 +166,7 @@ export async function challengeGate(req: Request): Promise<Response | null> {
       engine.queue.push(ev);
       engine.queue.flush();
     }
-    return null;
+    return { res: null, signal: true };
   }
-  return serveChallenge(engine, req, ip, url.pathname + url.search, undefined, !shipped);
+  return { res: await serveChallenge(engine, req, ip, url.pathname + url.search, undefined, !shipped), signal: false };
 }

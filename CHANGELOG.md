@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `challengeGate(req, render)`: with a render callback it returns the challenge Response, or `await render()` with the middleware's signal (`x-camada-challenge: 1`, no-store on `cache-control` and the CDN cache headers) applied when the request is not a page load. A route that forces a challenge no longer has to set those headers itself for an API client. `challengeGate(req)` is unchanged. (camada-all-1q7x)
+
 ## 0.4.0 (2026-10-26; follows 0.3.2)
 
 Built against `@camada/core` 0.6.0 (customer `matches` rules on the linear-time re2js engine inside a per-request regex budget; the beacon relay strips SDK-attested keys) and `@camada/browser` 0.4.0.
