@@ -53,9 +53,7 @@ async function capture(engine: Engine, req: NextRequest, path: string, ip: strin
   if (mark) headers.set(MW_HEADER, mark);
   const res = NextResponse.next({ request: { headers } });
   res.headers.set('x-rid', rid);
-  if (signalled) {
-    signalChallenge(res.headers);
-  }
+  if (signalled) signalChallenge(res.headers);   // per client: no shared cache may hand it to others
   if (!existingSid) {
     const secure = new URL(req.url).protocol === 'https:' ? '; Secure' : '';
     res.headers.append('set-cookie', `${SESSION_COOKIE}=${sid}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax${secure}`);

@@ -20,7 +20,7 @@ import iife from '@camada/browser/iife-string';
 import { logRateLimited, TAP_NEXT } from '@camada/core';
 import { createFetchCamada, withSetCookie } from '@camada/core/fetch';
 import { envSource, getEngine } from './engine';
-import { VERIFY_PATH } from './challenge';
+import { VERIFY_PATH, editHeaders } from './challenge';
 import { middlewareMarkValid } from './event';
 import { requestWaitUntil } from './wait-until';
 import { withTrackScope } from './track';
@@ -75,15 +75,4 @@ export function withCamada<R extends Request, A extends unknown[]>(
 /** x-rid, the rid of this request's row, the same header the middleware stamps. Set in place, or on a copy when the
  *  headers are immutable (`Response.redirect()`, a `fetch()` result), as withSetCookie does: same status and body.
  *  A 101 upgrade is left alone. Not on a request the middleware shipped: its own x-rid, that row's, reaches the client. */
-function withRid(res: Response, rid: string): Response {
-  if (res.status === 101) return res;
-  try {
-    res.headers.set('x-rid', rid);
-    return res;
-  } catch {
-    // ponytail: core's copyResponse is not exported; its Deno and @hono/node-server cases never reach a Next route.
-    const out = new Response(res.body, res);
-    out.headers.set('x-rid', rid);
-    return out;
-  }
-}
+const withRid = (res: Response, rid: string): Response => editHeaders(res, (h) => h.set('x-rid', rid));
