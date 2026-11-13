@@ -1,5 +1,7 @@
 # @camada/next
 
+[Next.js guide](https://www.camada.app/docs/quickstart/nextjs) · [Bot detection](https://www.camada.app/bot-detection) · [Bot signal test](https://www.camada.app/tools/bot-test) · [Pricing](https://www.camada.app/pricing).
+
 camada backend SDK for Next.js (app router): edge-safe middleware/proxy enforcement, the
 `/api/camada` route handlers that serve the fingerprint beacon first-party, and a
 `<CamadaBeacon/>` server component carrying the request's `rid`. Implements plan.md
@@ -46,19 +48,19 @@ rate-limited `console.error` says why.
 
 ## What each piece does
 
-- **`camada()`** — the middleware: refreshes the blocklist snapshot off-path
+- **`camada()`**: the middleware refreshes the blocklist snapshot off-path
   (`event.waitUntil`), enforces it inline (403 with
   `x-block-reason`/`x-block-version`/`x-block-rule`; blocked requests always ship,
   unsampled), stamps `x-camada-rid` onto the forwarded request (dropping any the client sent)
   and `x-rid` onto the response, and ships the wire event fire-and-forget with tap
-  `sdk-next`. `x-vercel-ja4-digest` — a real TLS fingerprint — rides along as `ja4` only when the
+  `sdk-next`. `x-vercel-ja4-digest` (a real TLS fingerprint) rides along as `ja4` only when the
   `VERCEL` platform env var is set (elsewhere a client can set that header; so don't ship a
   `vercel env pull` `.env.local`, which sets `VERCEL=1`, to a self-hosted deploy).
-- **`camadaRoute()`** — `GET …/b.js` serves the `@camada/browser` IIFE first-party (no CSP
+- **`camadaRoute()`**: `GET …/b.js` serves the `@camada/browser` IIFE first-party (no CSP
   or ad-blocker friction); `POST …/fp` relays the beacon body to ingest with the
   trusted-proxy-resolved client IP and `tap: 'sdk-next'` injected. Works on both runtimes.
   Both endpoints go inert (404) when the project turns the beacon off in its settings.
-- **`<CamadaBeacon/>`** — async server component; reads the middleware's `x-camada-rid` via
+- **`<CamadaBeacon/>`**: async server component; reads the middleware's `x-camada-rid` via
   `next/headers` and renders `<script src="/api/camada/b.js?r=<rid>" async>` so the beacon
   POST joins the server-side wire event.
 
@@ -123,19 +125,19 @@ is not sent from this position.
 ## Custom rules
 
 Your Rules page holds one ordered list per project, and the middleware walks it before the
-allow, block and challenge lists. First match wins — the order *is* the precedence — and each
+allow, block and challenge lists. First match wins (the order *is* the precedence), and each
 rule carries one of four actions:
 
 | action | what the middleware does | on the event |
 |---|---|---|
 | `skip` | passes the request | nothing |
 | `block` | `403` before your app | `blk: "rule"`, `rl: "<rule id>"` |
-| `challenge` | serves the proof-of-work page to a page load or a Pages Router data request (`/_next/data`) (`CAMADA_CHALLENGE=0` opts out); any other request (fetch, XHR, API call) passes with `x-camada-challenge: 1` and `no-store` on `cache-control` and the CDN cache headers (`cdn-cache-control`, `surrogate-control`, and the Cloudflare, Vercel and Netlify variants). App Router soft navigations pass this way too, because Next hides the RSC header from middleware; the next document load meets the page | `blk: "challenge"` for the page, `chs: 1` for a passed request |
+| `challenge` | serves the proof-of-work page to a page load or a Pages Router data request (`/_next/data`); `CAMADA_CHALLENGE=0` opts out. Any other request (fetch, XHR, API call) passes with `x-camada-challenge: 1`. It also sets `no-store` on `cache-control` and CDN cache headers (`cdn-cache-control`, `surrogate-control`, and Cloudflare, Vercel, and Netlify variants). App Router soft navigations pass this way too, because Next hides the RSC header from middleware; the next document load meets the page | `blk: "challenge"` for the page, `chs: 1` for a passed request |
 | `warn` | passes the request and marks it for the analyst | `wrn: "<rule id>"` |
 
 A skip rule also carries a *record matches* flag, which only the analyst reads: a recorded skip
 is still scored and shows on your dashboard as Allowed, an unrecorded one is dropped before
-scoring. Either way the request passes here, unstamped — the built-in Allow-list is a skip rule
+scoring. Either way the request passes here, unstamped. The built-in Allow-list is a skip rule
 with recording on.
 
 A rule block also names the row that decided, so the response says which rule to edit:
@@ -149,7 +151,7 @@ x-block-rule: cr_4f2a9c1b7e03
 `ip`, `path`, `ua` and `header` conditions enforce here; `asn`, `country` and `tlsx` conditions
 cannot be judged at this position and fail open, so a rule that needs one never matches. A
 `header` condition (`is`, `contains`, `matches`) reads the name case-insensitively, and headers
-are the request plane's alone — the analyst never sees them, so a header rule is enforced by a
+are the request plane's alone: the analyst never sees them, so a header rule is enforced by a
 v5 SDK like this one or not at all.
 
 The rules ride the v5 snapshot, which the SDK asks for by default. A project that has not
@@ -158,9 +160,9 @@ newest is always safe.
 
 ## Edge-runtime safety
 
-The middleware's entire import graph is Web-APIs-only — no `node:` imports. This is
+The middleware's entire import graph is Web-APIs-only, with no `node:` imports. This is
 **proven, not promised**: `test/edge-safety.test.ts` bundles `src/middleware.ts` for a bare
-edge target (where `node:` built-ins do not resolve — a canary test pins that the mechanism
+edge target (where `node:` built-ins do not resolve; a canary test pins that the mechanism
 trips) and then executes the bundle inside `@edge-runtime/vm` with no Node globals, driving
 a real cold → blocked flow against the golden snapshot fixture.
 
@@ -168,7 +170,7 @@ a real cold → blocked flow against the golden snapshot fixture.
 
 - **Client IP needs a trusted-proxy config.** There is no socket peer in middleware, so with
   no `CAMADA_TRUSTED_PROXY` (and no server-delivered tenant config) the IP resolves to
-  `null` and IP rules simply don't enforce — a spoofed `X-Forwarded-For` can never reach the
+  `null` and IP rules simply don't enforce: a spoofed `X-Forwarded-For` can never reach the
   blocklist. When `VERCEL` is set and no override is given, the SDK defaults to
   `{mode:'vercel'}` (Vercel overwrites XFF, so its rightmost entry is trustworthy). Under
   `VERCEL` that default also wins over the trusted-proxy setting in your dashboard: only
@@ -193,7 +195,7 @@ a real cold → blocked flow against the golden snapshot fixture.
 - **App-context tracking works from request scope only.** `track(event, {user?})` records
   outcomes (login failed, signup, …) from server actions, route handlers, and server
   components, joining the middleware's wire event via `x-camada-rid` + the `_sfp` cookie and
-  HMAC-hashing the identifier in-process. Outside a request scope it is a silent no-op —
+  HMAC-hashing the identifier in-process. Outside a request scope it is a silent no-op,
   and it must not be called from middleware, which already ships its own event.
 
 ## Develop
@@ -210,7 +212,17 @@ environment; route handlers run under node.
 
 The middleware/proxy matcher decides where enforcement runs. The beacon route handlers
 (`/api/camada/*`) enforce the blocklist themselves, so blocked clients can never fetch the
-beacon even when your matcher excludes `/api/` — but every OTHER route your matcher excludes
+beacon even when your matcher excludes `/api/`. Every OTHER route your matcher excludes
 is invisible to camada: no blocking, no events. Keep the matcher as broad as the example's
 (`/((?!_next/|favicon.ico).*)`) unless you have a specific reason not to. Anchor every exclusion
 with `$` (see `withCamada()` above): an unanchored lookahead entry is a prefix match.
+
+## Docs and links
+
+Read the Next.js guides on [camada.app](https://www.camada.app/docs).
+
+- [Next.js guide](https://www.camada.app/docs/quickstart/nextjs): wire `proxy.ts`, route handlers, and `<CamadaBeacon />`.
+- [Custom rules](https://www.camada.app/docs/rules) and [Challenge](https://www.camada.app/docs/challenge): order your rules and tune browser checks.
+- [Bot detection](https://www.camada.app/bot-detection): see how snapshots, beacons, and `track()` catch bots.
+- [Bot signal test](https://www.camada.app/tools/bot-test): check live browser, HTTP, and TLS signals from your client.
+- [Pricing](https://www.camada.app/pricing): compare the free tier and paid plans.

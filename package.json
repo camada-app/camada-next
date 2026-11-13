@@ -18,6 +18,30 @@
   },
   "name": "@camada/next",
   "description": "camada backend SDK for Next.js: edge-safe middleware/proxy, /api/camada route handlers, <CamadaBeacon/> with the request rid",
+  "homepage": "https://www.camada.app/docs/quickstart/nextjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/camada-app/camada-next.git"
+  },
+  "bugs": {
+    "url": "https://github.com/camada-app/camada-next/issues"
+  },
+  "keywords": [
+    "camada",
+    "nextjs",
+    "next",
+    "react",
+    "vercel",
+    "edge-middleware",
+    "bot-detection",
+    "bot-protection",
+    "credential-stuffing",
+    "account-takeover",
+    "rate-limiting",
+    "proof-of-work",
+    "ai-scraper",
+    "security"
+  ],
   "exports": {
     ".": {
       "import": {
