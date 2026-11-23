@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 import { NextRequest, type NextFetchEvent } from 'next/server';
-import { challengeGate } from '../src/challenge';
+import { powOk } from '@camada/core';
+import { challengeGate, kitFor } from '../src/challenge';
 import { configure, getEngine, type ConfigureOptions } from '../src/engine';
 import { camada } from '../src/middleware';
 import { camadaRoute } from '../src/route';
@@ -73,6 +75,21 @@ it('ships tk when middleware serves a challenge', async () => {
   expect(await res).toMatchObject({ status: 403 });
   await ev.settled();
   expect(a.events.flat()).toEqual([expect.objectContaining({ st: 403, blk: 'challenge', tk: TK })]);
+});
+
+it('ships tk when the challenge POST verifies a solution', async () => {
+  const a = setup(ON);
+  a.v4 = true;
+  await prime();
+  const nonce = await kitFor(getEngine()!).nonce(CHALLENGED_IP, Date.now());
+  let solution = 0;
+  while (!powOk(createHash('sha256').update(`${nonce}.${solution}`).digest('hex'))) solution++;
+  const res = await camadaRoute().POST(new Request(url('/api/camada/challenge'), {
+    method: 'POST', headers: { authorization: AUTH, 'x-forwarded-for': CHALLENGED_IP },
+    body: new URLSearchParams({ nonce, solution: String(solution), to: '/cart' }),
+  }));
+  expect(res.status).toBe(302);
+  await vi.waitFor(() => expect(a.events.flat()).toEqual([expect.objectContaining({ st: 200, ch: 1, tk: TK })]));
 });
 
 it('ships tk on a signalled challenge gate row', async () => {
