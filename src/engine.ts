@@ -7,8 +7,8 @@
 // This module is part of the middleware's import graph and therefore MUST stay
 // edge-runtime-safe: Web APIs and process.env reads only, no node: imports.
 import {
-  SnapshotClient, EventQueue, parseKey, parseTrustedProxyEnv, logRateLimited, guarded, resolveTokenHash,
-  type SnapshotVersion, type TokenHashConfig, type TokenHashOptions, type TrustedProxyConfig,
+  SnapshotClient, EventQueue, parseKey, parseTrustedProxyEnv, logRateLimited, resolveTokenHash, warnIgnoredTokenHeader,
+  type SnapshotVersion, type TokenHashConfig, type TrustedProxyConfig,
 } from '@camada/core';
 
 import { SDK_ID } from './version';
@@ -49,7 +49,7 @@ export interface Engine {
   fetchImpl: typeof fetch;   // for the beacon relay; snapshot/queue carry their own copy
 }
 
-export interface ConfigureOptions extends TokenHashOptions {
+export interface ConfigureOptions {
   env?: Record<string, string | undefined>;
   fetchImpl?: typeof fetch;
   challenge?: boolean;        // enforce `challenge` verdicts with the first-party page (default true)
@@ -91,7 +91,7 @@ export function getEngine(): Engine | null {
   }
   const fetchImpl = overrides.fetchImpl;
   const injected = fetchImpl ? { fetchImpl } : {};   // never pass an explicit undefined key
-  const tokenHash = resolveTokenHash(overrides, source);
+  const tokenHash = resolveTokenHash({}, source);
   engine = {
     env, tokenHash,
     fetchImpl: fetchImpl ?? fetch,
@@ -99,7 +99,7 @@ export function getEngine(): Engine | null {
     snap: new SnapshotClient({ url: env.snapshotUrl, token: env.snapToken, mode: 'lazy', sdk: SDK_ID, snapshotVersion: overrides.snapshotVersion, ...injected }),
     queue: new EventQueue({ url: env.ingestUrl, token: env.ingestToken, sdk: SDK_ID, ...injected }),
   };
-  if (tokenHash?.ignoredHeader) guarded(() => console.warn('[camada] token header ignored; using Authorization only'), undefined);
+  warnIgnoredTokenHeader(tokenHash);
   return engine;
 }
 

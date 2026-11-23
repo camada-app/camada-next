@@ -19,10 +19,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function setup(env: ConfigureOptions['env'] = {}, opts: Omit<ConfigureOptions, 'env' | 'fetchImpl'> = {}) {
+function setup(env: ConfigureOptions['env'] = {}) {
   const a = fakeAnalyst();
   configure({
-    ...opts,
     env: { ...ENV, CAMADA_KEY: 'ct_test_fixture_key.snap-test', CAMADA_TRUSTED_PROXY: 'hops:1', ...env },
     fetchImpl: a.fetchImpl,
   });
@@ -42,11 +41,11 @@ function middlewareRequest(path: string, headers: Record<string, string> = {}) {
 }
 
 it.each([
-  { label: 'off by default despite the snapshot', env: {}, opts: {}, tk: undefined },
-  { label: 'on via env', env: ON, opts: {}, tk: TK },
-  { label: 'off via an explicit override', env: ON, opts: { tokenHash: false }, tk: undefined },
-])('ships middleware capture and synchronous block rows with hashing $label', async ({ env, opts, tk }) => {
-  const a = setup(env, opts);
+  { label: 'off by default despite the snapshot', env: {}, tk: undefined },
+  { label: 'on via env', env: ON, tk: TK },
+  { label: 'off via env', env: { CAMADA_TOKEN_HASH: '0' }, tk: undefined },
+])('ships middleware capture and synchronous block rows with hashing $label', async ({ env, tk }) => {
+  const a = setup(env);
   a.config.tokenHash = true;
   await prime();
   const capture = middlewareRequest('/capture');
@@ -96,11 +95,11 @@ it('ships tk when the beacon route blocks a request', async () => {
 });
 
 it.each([
-  { label: 'env enables hashing', env: ON, opts: {}, tk: TK },
-  { label: 'the option disables hashing', env: ON, opts: { tokenHash: false }, tk: undefined },
-  { label: 'the option selects the extra header', env: { ...ON, CAMADA_TOKEN_HEADER: 'x-other' }, opts: { tokenHeader: 'X-Api-Key' }, tk: API_TK },
-])('passes resolved config to withCamada when $label', async ({ env, opts, tk }) => {
-  const a = setup(env, opts);
+  { label: 'enables hashing', env: ON, tk: TK },
+  { label: 'disables hashing', env: { CAMADA_TOKEN_HASH: '0' }, tk: undefined },
+  { label: 'selects the extra header', env: { ...ON, CAMADA_TOKEN_HEADER: 'X-Api-Key' }, tk: API_TK },
+])('passes env to withCamada when it $label', async ({ env, tk }) => {
+  const a = setup(env);
   vi.stubGlobal('fetch', a.fetchImpl);
   const res = await withCamada(() => new Response('ok'))(new Request(url('/wrapped'), {
     headers: { authorization: AUTH, 'x-api-key': 'fake-api-key-0007' },

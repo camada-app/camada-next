@@ -30,8 +30,9 @@ export function shipRequestRow(engine: Engine, req: Request, ev: WireEvent, wait
     void engine.queue.flush(waitUntil);
     return;
   }
+  const tkP = requestTokenHash((n) => req.headers.get(n), cfg, engine.env.ingestToken);
   const p = guardedAsync(async () => {
-    const tk = await requestTokenHash((name) => req.headers.get(name), cfg, engine.env.ingestToken);
+    const tk = await tkP;
     if (tk !== null) ev.tk = tk;
     engine.queue.push(ev);
     return engine.queue.flush();
