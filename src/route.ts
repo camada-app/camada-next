@@ -89,7 +89,7 @@ export function camadaRoute(): {
         let parsed: unknown;
         try { parsed = JSON.parse(body); } catch { return noContent(); }   // not a beacon: drop it, never ship junk
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          engine.queue.push(beaconRow(parsed as Record<string, unknown>, ip, TAP_NEXT));
+          engine.queue.push(beaconRow(parsed, ip, TAP_NEXT));
           void engine.queue.flush();   // fire-and-forget, as the relay was: a serverless runtime may freeze right after the response
         }
       }
