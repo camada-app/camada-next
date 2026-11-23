@@ -1,7 +1,8 @@
 // One wire-event builder for every @camada/next entry (middleware + beacon route). Web APIs
 // only: this sits in the middleware's edge-safe import graph.
-import { buildWireEvent, hmacHex, safeEqual, TAP_NEXT, type WireEvent } from '@camada/core';
-import { envSource } from './engine';
+import { buildWireEvent, guarded, guardedAsync, hmacHex, requestTokenHash, safeEqual, TAP_NEXT, type WireEvent } from '@camada/core';
+import { envSource, type Engine } from './engine';
+import { requestWaitUntil } from './wait-until';
 
 export function buildEvent(req: Request, path: string, ip: string | null, rid: string, sid: string | null, newSession: boolean): WireEvent {
   const url = new URL(req.url);
@@ -20,6 +21,24 @@ export function buildEvent(req: Request, path: string, ip: string | null, rid: s
     // ja4 only on Vercel (the server env, which a client cannot set): elsewhere x-vercel-ja4-digest is client-settable.
     { tap: TAP_NEXT, rid, sid, newSession, ja4: envSource().VERCEL ? req.headers.get('x-vercel-ja4-digest') : null },
   );
+}
+
+export function shipRequestRow(engine: Engine, req: Request, ev: WireEvent, waitUntil?: (p: Promise<unknown>) => void): void {
+  const cfg = engine.tokenHash;
+  if (!cfg) {
+    engine.queue.push(ev);
+    void engine.queue.flush(waitUntil);
+    return;
+  }
+  const tkP = requestTokenHash((n) => req.headers.get(n), cfg, engine.env.ingestToken);
+  const p = guardedAsync(async () => {
+    const tk = await tkP;
+    if (tk !== null) ev.tk = tk;
+    engine.queue.push(ev);
+    return engine.queue.flush();
+  }, undefined);
+  // Hold both the hash and the flush open. Route handlers use Next's request scope.
+  guarded(() => (waitUntil ?? requestWaitUntil())(p), undefined);
 }
 
 /** Stamped by the middleware next to x-camada-rid on the request it forwards: proof, for withCamada(), that this request's

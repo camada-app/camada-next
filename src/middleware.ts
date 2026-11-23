@@ -13,7 +13,7 @@ import { NextResponse } from 'next/server';
 import { resolveClientIp, logRateLimited, guarded, guardedAsync } from '@camada/core';
 import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } from './engine';
 import { isChallengeRoute, challengePassed, serveChallenge, isChallengeable, signalChallenge } from './challenge';
-import { buildEvent, cookieValue, middlewareMark, MW_HEADER, SESSION_COOKIE } from './event';
+import { buildEvent, cookieValue, middlewareMark, MW_HEADER, SESSION_COOKIE, shipRequestRow } from './event';
 
 /** camadaRoute()'s beacon endpoints (mounted at /api/camada/[...camada]). Camada's own, like core's scriptPath/fpPath:
  *  after enforcement they are neither captured nor stamped with x-rid. */
@@ -40,8 +40,7 @@ async function capture(engine: Engine, req: NextRequest, path: string, ip: strin
     const ev = buildEvent(req, path, ip, rid, sid, !existingSid);
     if (warnRule) ev.wrn = warnRule;
     if (signalled) ev.chs = 1;
-    engine.queue.push(ev);
-    engine.queue.flush(waitUntil);
+    shipRequestRow(engine, req, ev, waitUntil);
   }
 
   const headers = new Headers(req.headers);
@@ -106,8 +105,7 @@ export function camada(_options?: CamadaMiddlewareOptions): (req: NextRequest, e
         ev.st = 403;                                 // blocked requests always ship, unsampled
         ev.blk = v.reason;                           // SDK-01: the reason rides the event so the analyst counts SDK blocks, not the app's own 403s ('rule' when a rule decided)
         if (v.rule) ev.rl = v.rule;
-        engine.queue.push(ev);
-        engine.queue.flush(waitUntil);
+        shipRequestRow(engine, req, ev, waitUntil);
         const headers: Record<string, string> = {
           'content-type': 'text/plain',
           'cache-control': 'no-store',

@@ -49,7 +49,10 @@ export function withCamada<R extends Request, A extends unknown[]>(
     const env = envSource();
     // On Vercel the platform overwrites X-Forwarded-For, so its rightmost entry is trustworthy: the middleware's default too.
     const r = await cam.before(req, {
-      env: { ...env, CAMADA_TRUSTED_PROXY: env.CAMADA_TRUSTED_PROXY || (env.VERCEL ? 'vercel' : undefined) },
+      env: {
+        ...env,
+        CAMADA_TRUSTED_PROXY: env.CAMADA_TRUSTED_PROXY || (env.VERCEL ? 'vercel' : undefined),
+      },
       waitUntil: requestWaitUntil(),   // the event flushes after the body: hold a serverless function open for it
     });
     if (!r) return handler(req, ...rest);

@@ -10,7 +10,7 @@ import iife from '@camada/browser/iife-string';
 import { guardedAsync, resolveClientIp, readBodyCapped, TAP_NEXT, beaconRow } from '@camada/core';
 import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } from './engine';
 import { verifyChallenge } from './challenge';
-import { buildEvent, cookieValue, SESSION_COOKIE } from './event';
+import { buildEvent, cookieValue, SESSION_COOKIE, shipRequestRow } from './event';
 
 const FP_MAX = 32 * 1024;   // matches the server's /fp cap: never accept what ingest will 413
 
@@ -28,8 +28,7 @@ function blocked(engine: Engine, req: Request): Response | null {
   const ev = buildEvent(req, path, ip, crypto.randomUUID(), cookieValue(req.headers.get('cookie') || '', SESSION_COOKIE), false);
   ev.st = 403; ev.blk = v.reason;   // SDK-01: a beacon-route deny is a block like any other — it ships, unsampled
   if (v.rule) ev.rl = v.rule;
-  engine.queue.push(ev);
-  void engine.queue.flush();
+  shipRequestRow(engine, req, ev);
   const headers: Record<string, string> = { 'cache-control': 'no-store', 'x-block-reason': String(v.reason ?? ''), 'x-block-version': v.version ?? '' };
   if (v.rule) headers['x-block-rule'] = v.rule;
   return new Response('Forbidden', { status: 403, headers });
