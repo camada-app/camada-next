@@ -9,7 +9,7 @@ import {
   resolveClientIp, readBodyCapped, CHALLENGE_COOKIE, type AsyncChallengeKit,
 } from '@camada/core';
 import { getEngine, isDisabled, challengeEnabled, trustedProxy, type Engine } from './engine';
-import { buildEvent, cookieValue, middlewareMarkValid, SESSION_COOKIE } from './event';
+import { buildEvent, cookieValue, middlewareMarkValid, SESSION_COOKIE, shipRequestRow } from './event';
 
 /** Where the page posts. The catch-all route handler must be mounted at /api/camada/[...camada]
  *  (the documented install) — the served page hard-codes this action. */
@@ -42,8 +42,7 @@ export async function serveChallenge(engine: Engine, req: Request, ip: string, t
     const ev = buildEvent(req, new URL(req.url).pathname, ip, crypto.randomUUID(), cookieValue(req.headers.get('cookie') || '', SESSION_COOKIE), false);
     ev.st = 403;
     ev.blk = 'challenge';
-    engine.queue.push(ev);
-    engine.queue.flush(waitUntil);
+    shipRequestRow(engine, req, ev, waitUntil);
   }
 
   // A page gets the proof-of-work page; the only other request served here is a Pages Router data request, which Next turns into a document load.
@@ -82,8 +81,7 @@ export async function verifyChallenge(engine: Engine, req: Request): Promise<Res
   const ev = buildEvent(req, url.pathname, ip, crypto.randomUUID(), cookieValue(req.headers.get('cookie') || '', SESSION_COOKIE), false);
   ev.st = 200;
   ev.ch = 1;   // challenge passed (contract §A3 ingest field)
-  engine.queue.push(ev);
-  void engine.queue.flush();
+  shipRequestRow(engine, req, ev);
   return new Response(null, {
     status: 302,
     headers: {
@@ -164,8 +162,7 @@ async function gate(req: Request): Promise<{ res: Response | null; signal: boole
     if (!shipped) {
       const ev = buildEvent(req, url.pathname, ip, crypto.randomUUID(), cookieValue(req.headers.get('cookie') || '', SESSION_COOKIE), false);
       ev.chs = 1;
-      engine.queue.push(ev);
-      engine.queue.flush();
+      shipRequestRow(engine, req, ev);
     }
     return { res: null, signal: true };
   }

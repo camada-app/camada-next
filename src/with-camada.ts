@@ -17,7 +17,7 @@
 //   - track() inside the handler takes this wrapper's rid and session (withTrackScope), never a
 //     client-sent x-camada-rid; only a request the middleware already shipped keeps its stamped one.
 import iife from '@camada/browser/iife-string';
-import { logRateLimited, TAP_NEXT } from '@camada/core';
+import { guarded, logRateLimited, TAP_NEXT } from '@camada/core';
 import { createFetchCamada, withSetCookie } from '@camada/core/fetch';
 import { envSource, getEngine } from './engine';
 import { VERIFY_PATH, editHeaders } from './challenge';
@@ -47,9 +47,15 @@ export function withCamada<R extends Request, A extends unknown[]>(
 ): (req: R, ...rest: A) => Promise<Response> {
   return async (req, ...rest) => {
     const env = envSource();
+    const cfg = env.CAMADA_DISABLED === '1' ? null : guarded(() => getEngine()?.tokenHash ?? null, null);
     // On Vercel the platform overwrites X-Forwarded-For, so its rightmost entry is trustworthy: the middleware's default too.
     const r = await cam.before(req, {
-      env: { ...env, CAMADA_TRUSTED_PROXY: env.CAMADA_TRUSTED_PROXY || (env.VERCEL ? 'vercel' : undefined) },
+      env: {
+        ...env,
+        CAMADA_TRUSTED_PROXY: env.CAMADA_TRUSTED_PROXY || (env.VERCEL ? 'vercel' : undefined),
+        CAMADA_TOKEN_HASH: cfg ? '1' : '0',
+        CAMADA_TOKEN_HEADER: cfg?.header ?? undefined,
+      },
       waitUntil: requestWaitUntil(),   // the event flushes after the body: hold a serverless function open for it
     });
     if (!r) return handler(req, ...rest);

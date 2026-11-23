@@ -46,6 +46,25 @@ cidrs:a,b`), `CAMADA_DISABLED=1` (kill switch, checked per request). Unconfigure
 is inert: the middleware returns `undefined`, the route handlers answer 404/204, and one
 rate-limited `console.error` says why.
 
+### Credential hash (opt-in, off by default)
+
+Set `CAMADA_TOKEN_HASH=1` to include `tk` on request events that carry an eligible
+credential. Environment variables are the switch in Next.js and apply to the
+middleware, route handlers and `withCamada()`.
+
+`CAMADA_TOKEN_HEADER` optionally names an extra header such as `x-api-key`. When
+that header has an eligible value, camada hashes its entire value. Otherwise,
+camada uses the part of `Authorization` after the scheme, such as a Bearer token,
+or its entire value when no scheme is present. The credential must contain at
+least 8 printable ASCII characters. The credential itself never leaves the process.
+
+`tk` is the first 32 lowercase hexadecimal characters of HMAC-SHA256, keyed with
+your ingest token, over `tok:` plus the credential. camada uses `tk` to spot a
+credential replayed from many clients. Enable it for random tokens or API keys.
+Keep it off for human passwords sent over Basic auth because anyone holding both
+your events and your ingest token could test password guesses against the hash.
+Rotating the ingest token changes every `tk`.
+
 ## What each piece does
 
 - **`camada()`**: the middleware refreshes the blocklist snapshot off-path

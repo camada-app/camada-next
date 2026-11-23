@@ -7,8 +7,8 @@
 // This module is part of the middleware's import graph and therefore MUST stay
 // edge-runtime-safe: Web APIs and process.env reads only, no node: imports.
 import {
-  SnapshotClient, EventQueue, parseKey, parseTrustedProxyEnv, logRateLimited,
-  type SnapshotVersion, type TrustedProxyConfig,
+  SnapshotClient, EventQueue, parseKey, parseTrustedProxyEnv, logRateLimited, guarded, resolveTokenHash,
+  type SnapshotVersion, type TokenHashConfig, type TokenHashOptions, type TrustedProxyConfig,
 } from '@camada/core';
 
 import { SDK_ID } from './version';
@@ -43,12 +43,13 @@ export function resolveEnv(env: Record<string, string | undefined>): ResolvedEnv
 
 export interface Engine {
   env: ResolvedEnv;
+  tokenHash: TokenHashConfig | null;
   snap: SnapshotClient;
   queue: EventQueue;
   fetchImpl: typeof fetch;   // for the beacon relay; snapshot/queue carry their own copy
 }
 
-export interface ConfigureOptions {
+export interface ConfigureOptions extends TokenHashOptions {
   env?: Record<string, string | undefined>;
   fetchImpl?: typeof fetch;
   challenge?: boolean;        // enforce `challenge` verdicts with the first-party page (default true)
@@ -82,20 +83,23 @@ export function challengeEnabled(): boolean {
 
 export function getEngine(): Engine | null {
   if (engine !== undefined) return engine;
-  const env = resolveEnv(envSource());
+  const source = envSource();
+  const env = resolveEnv(source);
   if (!env) {
     logRateLimited(new Error('CAMADA_KEY (or CAMADA_TOKEN + CAMADA_SNAPSHOT_TOKEN) not set — camada is inactive'));
     return (engine = null);
   }
   const fetchImpl = overrides.fetchImpl;
   const injected = fetchImpl ? { fetchImpl } : {};   // never pass an explicit undefined key
+  const tokenHash = resolveTokenHash(overrides, source);
   engine = {
-    env,
+    env, tokenHash,
     fetchImpl: fetchImpl ?? fetch,
     // snapshotVersion left undefined takes core's default (5); the client drops undefined keys.
     snap: new SnapshotClient({ url: env.snapshotUrl, token: env.snapToken, mode: 'lazy', sdk: SDK_ID, snapshotVersion: overrides.snapshotVersion, ...injected }),
     queue: new EventQueue({ url: env.ingestUrl, token: env.ingestToken, sdk: SDK_ID, ...injected }),
   };
+  if (tokenHash?.ignoredHeader) guarded(() => console.warn('[camada] token header ignored; using Authorization only'), undefined);
   return engine;
 }
 
