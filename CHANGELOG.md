@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0 (2026-11-24; follows 0.4.1)
+
+Built against `@camada/core` 0.7.0, `@camada/browser` 0.5.0 and `@camada/react` 0.5.0.
+
+### Added
+
+- Opt-in credential hash, off by default. With env `CAMADA_TOKEN_HASH=1`, request events that carry a usable credential ship `tk`, a keyed HMAC of the credential computed in process. The env switch applies to the middleware, route handlers and `withCamada()`; there is no code option. `CAMADA_TOKEN_HEADER` names a header such as `x-api-key` to use in place of `Authorization`. The credential itself never leaves the process. See the README, "Credential hash". (camada-all-tvkd)
+
+### Changed
+
+- The route-handler beacon relay uses core's `beaconRow`, so it now also drops `tk`, `bf` and `upf` from a visitor's body. (camada-all-c0qo)
+
 ## 0.4.1 (2026-10-28; follows 0.4.0)
 
 Built against `@camada/core` 0.6.1.
